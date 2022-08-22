@@ -10,6 +10,11 @@ A set of tools to deal with Wii low-level boot and storage.
 
 ## Usage
 
+* `tweezer.py`: tool to deal with precision items and to bridge checks (Wii cryptography and signing);
+* `tong.py`: tool to deal with nasty ticks (Wii ticket, titles and title metadata);
+* `texel.py`: tool to deal with Wadden islands (Wii .wad files);
+* `tsoprocky.py`: tool to deal with TSOP chips (Wii NAND data);
+
 Refer to the `--help` output of the individual tools, and `./scripts` for some example scripts.
 
 ## License
