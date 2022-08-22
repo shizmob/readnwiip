@@ -190,6 +190,20 @@ def extract_mapped_blocks(infile, block_num_hints: list[int], reversed=False):
         data += block
     return data
 
+def insert_mapped_blocks(outfile, block_num_hints: list[int], data: bytes, reversed=False) -> None:
+    generation, content_blocks, map_blocks = extract_block_mapping(outfile, block_num_hints, reversed)
+    n = 0
+    for block_num in content_blocks:
+        block_pages = NAND_BLOCK_PAGES
+        if block_num in map_blocks:
+            block_pages -= 1
+        block_size = block_pages * NAND_PAGE_SIZE
+        chunk = data[n:n + block_size].ljust(block_size, b'\x00')
+        n += block_size
+        nand_write_pages(outfile, block_num, chunk)
+        if n >= len(data):
+            break
+
 
 BOOT2_BLOCK_NUMBERS = [1, 2, 3, 4, 5, 6, 7]
 
@@ -197,9 +211,9 @@ def extract_boot2(infile, backup=False) -> WADv0:
     data = extract_mapped_blocks(infile, BOOT2_BLOCK_NUMBERS, reversed=backup)
     return parse(WADv0, data)
 
-def insert_boot2(infile, content: WADv0, backup=False) -> None:
-    data = dump(WADv0, content)
-    insert_mapped_blocks(infile, BOOT2_BLOCK_NUMBERS, reversed=backup)
+def insert_boot2(outfile, content: WADv0, backup=False) -> None:
+    data = dump(WADv0, content).getvalue()
+    insert_mapped_blocks(outfile, BOOT2_BLOCK_NUMBERS, data, reversed=backup)
 
 
 if __name__ == '__main__':
@@ -239,6 +253,9 @@ if __name__ == '__main__':
     def do_extract_boot2(args, parser):
         boot2 = extract_boot2(args.nandfile, backup=args.backup)
         prefix = os.path.basename(os.path.splitext(args.nandfile.name)[0])
+        chunks = boot2.extract_chunks()
+        for i in range(len(args.chunkfiles), len(chunks)):
+            args.chunkfiles.append(open(prefix + '.boot2.{}.bin'.format(i), 'wb'))
 
         if not args.chainfile:
             args.chainfile = open(prefix + '.boot2.crt', 'wb')
@@ -249,9 +266,8 @@ if __name__ == '__main__':
         if not args.ticketfile:
             args.ticketfile = open(prefix + '.boot2.tik', 'wb')
         dump(Ticket, boot2.tik, args.ticketfile)
-        if not args.appfile:
-            args.appfile = open(prefix + '.boot2.app', 'wb')
-        args.appfile.write(boot2.data[:boot2.tmd.content.calc_data_size()])
+        for (chunk, chunkfile) in zip(chunks, args.chunkfiles):
+            chunkfile.write(chunk)
 
     extract_boot2_cmd = subcommands.add_parser('extract-boot2')
     extract_boot2_cmd.set_defaults(func=do_extract_boot2)
@@ -260,18 +276,20 @@ if __name__ == '__main__':
     extract_boot2_cmd.add_argument('chainfile', nargs='?', type=argparse.FileType('wb'))
     extract_boot2_cmd.add_argument('metafile', nargs='?', type=argparse.FileType('wb'))
     extract_boot2_cmd.add_argument('ticketfile', nargs='?', type=argparse.FileType('wb'))
-    extract_boot2_cmd.add_argument('appfile', nargs='?', type=argparse.FileType('wb'))
+    extract_boot2_cmd.add_argument('chunkfiles', nargs='*', type=argparse.FileType('wb'))
 
     def do_insert_boot2(args, parser):
         cert_chain = parse(Arr(Certificate), args.chainfile)
         tmd = parse(TitleMetadata, args.metafile)
         tik = parse(Ticket, args.ticketfile)
-        app = args.appfile.read()
+        data = b''
+        for chunk in args.chunkfiles:
+            data += chunk.read()
         boot2 = WADv0(
             cert_chain=cert_chain,
             tmd=tmd,
             tik=tik,
-            data=app,
+            data=data,
         )
         insert_boot2(args.nandfile, boot2, backup=args.backup)
 
@@ -282,7 +300,7 @@ if __name__ == '__main__':
     insert_boot2_cmd.add_argument('chainfile', nargs='?', type=argparse.FileType('rb'))
     insert_boot2_cmd.add_argument('metafile', nargs='?', type=argparse.FileType('rb'))
     insert_boot2_cmd.add_argument('ticketfile', nargs='?', type=argparse.FileType('rb'))
-    insert_boot2_cmd.add_argument('appfile', nargs='?', type=argparse.FileType('rb'))
+    insert_boot2_cmd.add_argument('chunkfiles', nargs='*', type=argparse.FileType('rb'))
 
     args = parser.parse_args()
     if not args.func:
