@@ -252,8 +252,8 @@ class Signature(Struct):
         assert forged_sig.verify_buggy(root, chain, content)
         return forged_sig
 
-def is_forgeable_data(key: PublicKey, content: (bytes, bytearray)) -> bool:
-    return Signature(algorithm=key.algorithm, value=b'').digest(content)[0] == 0
+def is_forgeable_data(key: PublicKey, issuer: str, content: (bytes, bytearray)) -> bool:
+    return Signature(algorithm=key.algorithm, issuer=issuer, value=b'').digest(content)[0] == 0
 
 class Signed(Struct, generics={SxCT}):
     signature: Signature
@@ -280,6 +280,7 @@ class Signed(Struct, generics={SxCT}):
     @classmethod
     def forge(cls, root: PublicKey, chain: list[Certificate], content: T, tweakable_positions: list[int] = None, public=False) -> Signed[T]:
         data = dump(type(content) if not isinstance(content, bytes) else Data(), content).getvalue()
+        issuer = '-'.join([root.subject] + [c.content.subject for c in chain])
         public_key = chain[-1].content
         if tweakable_positions is None:
             tweakable_positions = [len(data) + i for i in range(256)]
@@ -294,7 +295,7 @@ class Signed(Struct, generics={SxCT}):
                 for values in itertools.product(*(range(256) for _ in range(len(positions)))):
                     for (pos, val) in zip(positions, values):
                         forged_data[pos] = val
-                    if is_forgeable_data(public_key, forged_data):
+                    if is_forgeable_data(public_key, issuer, forged_data):
                         break
                 else:
                     continue
@@ -306,7 +307,7 @@ class Signed(Struct, generics={SxCT}):
             raise ValueError('could not find data permutation that is forgeable')
 
         forgery = cls(
-            signature=Signature(algorithm=public_key.algorithm, value=b''),
+            signature=Signature(algorithm=public_key.algorithm, value=b'', issuer=issuer),
             content=parse(type(content) if not isinstance(content, bytes) else Data(), forged_data),
         )
         forgery.signature = Signature.forge(root, chain, forgery.digest(), public=public)
