@@ -223,8 +223,7 @@ if __name__ == '__main__':
 
     subcommands = parser.add_subparsers()
 
-    def do_encrypt(args, parser):
-        key_dir = os.path.join(args.key_dir, 'keys', args.profile)
+    def do_encrypt(args, parser, key_dir):
         with open(os.path.join(key_dir, 'common.key'), 'rb') as f:
             common_keys = [f.read()]
 
@@ -241,8 +240,7 @@ if __name__ == '__main__':
     encrypt_cmd.add_argument('infile', type=argparse.FileType('rb'))
     encrypt_cmd.add_argument('chunkfile', type=argparse.FileType('wb'))
 
-    def do_decrypt(args, parser):
-        key_dir = os.path.join(args.key_dir, 'keys', args.profile)
+    def do_decrypt(args, parser, key_dir):
         with open(os.path.join(key_dir, 'common.key'), 'rb') as f:
             common_keys = [f.read()]
 
@@ -259,8 +257,7 @@ if __name__ == '__main__':
     decrypt_cmd.add_argument('chunkfile', type=argparse.FileType('rb'))
     decrypt_cmd.add_argument('outfile', type=argparse.FileType('wb'))
 
-    def do_update(args, parser):
-        key_dir = os.path.join(args.key_dir, 'keys', args.profile)
+    def do_update(args, parser, key_dir):
         with open(os.path.join(key_dir, 'common.key'), 'rb') as f:
             common_keys = [f.read()]
 
@@ -281,4 +278,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if not args.func:
         parser.error('must specify subcommand')
-    sys.exit(args.func(args, parser))
+
+    key_dir = os.path.join(args.key_dir, 'keys', args.profile)
+    sys.exit(args.func(args, parser, key_dir))

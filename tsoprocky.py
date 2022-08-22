@@ -229,8 +229,7 @@ if __name__ == '__main__':
 
     subcommands = parser.add_subparsers()
 
-    def do_extract_boot1(args, parser):
-        key_dir = os.path.join(args.key_dir, 'keys', args.profile)
+    def do_extract_boot1(args, parser, key_dir):
         with open(os.path.join(key_dir, 'boot1.key'), 'rb') as f:
             boot1_key = f.read()
         args.boot1file.write(extract_boot1(args.nandfile, boot1_key))
@@ -240,8 +239,7 @@ if __name__ == '__main__':
     extract_boot1_cmd.add_argument('nandfile', type=argparse.FileType('rb'))
     extract_boot1_cmd.add_argument('boot1file', type=argparse.FileType('wb'))
 
-    def do_insert_boot1(args, parser):
-        key_dir = os.path.join(args.key_dir, 'keys', args.profile)
+    def do_insert_boot1(args, parser, key_dir):
         with open(os.path.join(key_dir, 'boot1.key'), 'rb') as f:
             boot1_key = f.read()
         insert_boot1(args.nandfile, boot1_key, args.boot1file.read())
@@ -251,7 +249,7 @@ if __name__ == '__main__':
     insert_boot1_cmd.add_argument('nandfile', type=argparse.FileType('r+b'))
     insert_boot1_cmd.add_argument('boot1file', type=argparse.FileType('rb'))
 
-    def do_extract_boot2(args, parser):
+    def do_extract_boot2(args, parser, key_dir):
         boot2 = extract_boot2(args.nandfile, backup=args.backup)
         prefix = os.path.basename(os.path.splitext(args.nandfile.name)[0])
         chunks = boot2.extract_chunks()
@@ -279,7 +277,7 @@ if __name__ == '__main__':
     extract_boot2_cmd.add_argument('ticketfile', nargs='?', type=argparse.FileType('wb'))
     extract_boot2_cmd.add_argument('chunkfiles', nargs='*', type=argparse.FileType('wb'))
 
-    def do_insert_boot2(args, parser):
+    def do_insert_boot2(args, parser, key_dir):
         cert_chain = parse(CertificateChain, args.chainfile)
         tmd = parse(Signed[TitleMetadata], args.metafile)
         tik = parse(Signed[Ticket], args.ticketfile)
@@ -306,4 +304,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if not args.func:
         parser.error('must specify subcommand')
-    sys.exit(args.func(args, parser))
+
+    key_dir = os.path.join(args.key_dir, 'keys', args.profile)
+    sys.exit(args.func(args, parser, key_dir))

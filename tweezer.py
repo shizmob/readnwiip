@@ -426,8 +426,7 @@ if __name__ == '__main__':
 
     subcommands = parser.add_subparsers()
 
-    def do_import_chains(args, parser):
-        cert_dir = os.path.join(args.key_dir, 'certs', args.profile)
+    def do_import_chains(args, parser, cert_dir):
         for infile in args.infile:
             chain = parse(CertificateChain, infile)
             save_chains(cert_dir, chain)
@@ -436,8 +435,7 @@ if __name__ == '__main__':
     import_chains_cmd.set_defaults(func=do_import_chains)
     import_chains_cmd.add_argument('infile', nargs='*', type=argparse.FileType('rb'))
 
-    def do_export_chains(args, parser):
-        cert_dir = os.path.join(args.key_dir, 'certs', args.profile)
+    def do_export_chains(args, parser, cert_dir):
         certs = {}
         for chain in args.chain:
             _, chain_certs = load_chain(cert_dir, tuple(chain.split('-')))
@@ -451,8 +449,7 @@ if __name__ == '__main__':
     export_chains_cmd.add_argument('outfile', type=argparse.FileType('wb'))
     export_chains_cmd.add_argument('chain', nargs='*', help='chain name')
 
-    def do_sign(args, parser):
-        cert_dir = os.path.join(args.key_dir, 'certs', args.profile)
+    def do_sign(args, parser, cert_dir):
         root, chain = load_chain(cert_dir, tuple(args.key_chain.split('-')))
         try:
             sign_key = load_private_key(cert_dir, chain[-1].content.subject)
@@ -480,9 +477,7 @@ if __name__ == '__main__':
     sign_cmd.add_argument('infile', type=argparse.FileType('rb'))
     sign_cmd.add_argument('outfile', type=argparse.FileType('wb'))
 
-    def do_verify(args, parser):
-        cert_dir = os.path.join(args.key_dir, 'certs', args.profile)
-
+    def do_verify(args, parser, cert_dir):
         signed_data = parse(SignedData, args.infile)
         if args.key_chain and args.key_chain != signed_data.signature.issuer:
             sys.exit(1)
@@ -516,4 +511,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if not args.func:
         parser.error('must specify subcommand')
-    sys.exit(args.func(args, parser))
+
+    cert_dir = os.path.join(args.key_dir, 'certs', args.profile)
+    sys.exit(args.func(args, parser, cert_dir))
