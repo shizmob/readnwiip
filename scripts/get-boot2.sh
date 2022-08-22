@@ -46,4 +46,4 @@ echo ">> verify"
 runtool tweezer -p "$profile" verify -k $tmd_chain "$outdir"/boot2.stmd "$outdir"/boot2.tmd
 runtool tweezer -p "$profile" verify -k $tik_chain "$outdir"/boot2.stik "$outdir"/boot2.tik
 echo ">> decrypt"
-runtool tweezer -p "$profile" decrypt -i 0 "$outdir"/boot2.tmd "$outdir"/boot2.tik "$outdir"/boot2.ebin "$outdir"/boot2.bin
+runtool tong -p "$profile" decrypt -i 0 "$outdir"/boot2.tmd "$outdir"/boot2.tik "$outdir"/boot2.ebin "$outdir"/boot2.bin

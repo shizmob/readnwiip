@@ -2,9 +2,8 @@
 from __future__ import annotations
 from sx import Struct, Arr, parse, dump
 import hashlib
-from tweezer import (
-    Certificate, Ticket, TitleMetadata, TitleID, ContentType,
-)
+from tweezer import Certificate
+from tong import Ticket, TitleMetadata, TitleID, ContentType
 
 
 class WADv0(Struct):

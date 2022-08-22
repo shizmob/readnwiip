@@ -5,7 +5,8 @@ from collections import Counter
 from Crypto.Cipher import AES
 
 from sx import Struct, Arr, uint32be, parse, dump, sizeof
-from tweezer import Certificate, TitleMetadata, Ticket
+from tweezer import Certificate
+from tong import TitleMetadata, Ticket
 from texel import WADv0
 
 

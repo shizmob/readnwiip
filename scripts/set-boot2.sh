@@ -39,10 +39,9 @@ runtool() {
 nandfile="$1"
 indir="$2"
 
-echo ">> update"
-runtool tweezer -p "$profile" update -i 0 "$indir"/boot2.tmd "$indir"/boot2.bin "$indir"/boot2.new.tmd
 echo ">> encrypt"
-runtool tweezer -p "$profile" encrypt -i 0 "$indir"/boot2.new.tmd "$indir"/boot2.tik "$indir"/boot2.bin "$indir"/boot2.new.ebin
+runtool tong -p "$profile" update -i 0 "$indir"/boot2.tmd "$indir"/boot2.bin "$indir"/boot2.new.tmd
+runtool tong -p "$profile" encrypt -i 0 "$indir"/boot2.new.tmd "$indir"/boot2.tik "$indir"/boot2.bin "$indir"/boot2.new.ebin
 echo ">> sign"
 runtool tweezer -p "$profile" sign -k $tmd_chain -f $sign_args "$indir"/boot2.new.tmd "$indir"/boot2.new.stmd
 echo ">> insert"
