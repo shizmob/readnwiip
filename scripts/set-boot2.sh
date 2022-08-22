@@ -27,7 +27,7 @@ retail|*-retail)
 	;;
 dev|*-dev)
 	tmd_chain=Root-CA00000002-CP00000007
-	tik_chain=Root-CA00000001-XS00000006
+	tik_chain=Root-CA00000002-XS00000006
 	sign_args=-P
 	;;
 *)	printf "%s: unknown profile %s\n" "$0" "$profile" >&2; exit 255;;
