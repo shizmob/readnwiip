@@ -231,18 +231,20 @@ class Signature(Struct):
             signature = pkcs1_unpad_sig_public(raw_signature, key.algorithm)
         if not signature:
             return False
-        return signature == content
+        return signature == self.digest(content)
 
     def verify_buggy(self, root: PublicKey, chain: list[Certificate], content: bytes) -> bool:
         key = self.verify_key(root, chain)
         if not key:
             return False
         # who needs padding, anyway?
-        signature = key.decrypt_sig(self.value)[-len(content):]
+        digest = self.digest(content)
+        signature = key.decrypt_sig(self.value)[-len(digest):]
         zero_pos = signature.index(b'\x00')
-        return signature[:zero_pos + 1] == content[:zero_pos + 1]
+        return signature[:zero_pos + 1] == digest[:zero_pos + 1]
 
     def calc(self, key: PrivateKey, content: bytes, public=False) -> None:
+        content = self.digest(content)
         if public:
             content = pkcs1_pad_sig_public(content, key.public_key.algorithm)
         else:
@@ -250,24 +252,25 @@ class Signature(Struct):
         self.value = key.encrypt_sig(content)
 
     def forge(self, key: PublicKey, content: bytes, public=False) -> None:
+        assert self.is_forgeable_data(content)
         # all-zero ciphertexts decrypt to all-zero plaintexts in RSA, since (m^e mod n) = 0 if m = 0
         self.value = bytes(DATA_SIZES[key.algorithm][1])
 
-def is_forgeable_data(key: PublicKey, issuer: str, content: (bytes, bytearray)) -> bool:
-    return Signature(algorithm=key.algorithm, issuer=issuer, value=b'').digest(content)[0] == 0
+    def is_forgeable_data(self, content: bytes) -> bool:
+        return self.digest(content)[0] == 0
 
 class Signed(Struct, generics={SxCT}):
     signature: Signature
     content:   SxCT
 
-    def digest(self) -> bytes:
-        return self.signature.digest(dump(to_type(self.content), self.content).getvalue())
+    def raw_content(self) -> bytes:
+        return dump(to_type(self.content), self.content).getvalue()
 
     def verify(self, root: PublicKey, chain: list[Certificate]) -> bool:
-        return self.signature.verify(root, chain, self.digest())
+        return self.signature.verify(root, chain, self.raw_content())
 
     def verify_buggy(self, root: PublicKey, chain: list[Certificate]) -> bool:
-        return self.signature.verify_buggy(root, chain, self.digest())
+        return self.signature.verify_buggy(root, chain, self.raw_content())
 
     @classmethod
     def calc(cls, root: PublicKey, chain: list[Certificate], key: PrivateKey, content: T, public=False) -> Signed[T]:
@@ -276,15 +279,21 @@ class Signed(Struct, generics={SxCT}):
             signature=Signature(algorithm=key.algorithm, value=b'', issuer=issuer),
             content=content,
          )
-        self.signature.calc(key, self.digest(), public=public)
+        self.signature.calc(key, self.content, public=public)
         assert self.verify(root, chain)
         return self
 
     @classmethod
     def forge(cls, root: PublicKey, chain: list[Certificate], content: T, tweakable_positions: list[int] = None, public=False) -> Signed[T]:
-        data = dump(to_type(content), content).getvalue()
         issuer = '-'.join([root.subject] + [c.content.subject for c in chain])
         public_key = chain[-1].content
+        signature = Signature(algorithm=public_key.algorithm, value=b'', issuer=issuer)
+        forgery = cls(
+            signature=signature,
+            content=content,
+        )
+        data = forgery.raw_content()
+
         if tweakable_positions is None:
             tweakable_positions = [len(data) + i for i in range(256)]
 
@@ -298,7 +307,7 @@ class Signed(Struct, generics={SxCT}):
                 for values in itertools.product(*(range(256) for _ in range(len(positions)))):
                     for (pos, val) in zip(positions, values):
                         forged_data[pos] = val
-                    if is_forgeable_data(public_key, issuer, forged_data):
+                    if signature.is_forgeable_data(forged_data):
                         break
                 else:
                     continue
@@ -309,11 +318,8 @@ class Signed(Struct, generics={SxCT}):
         else:
             raise ValueError('could not find data permutation that is forgeable')
 
-        forgery = cls(
-            signature=Signature(algorithm=public_key.algorithm, value=b'', issuer=issuer),
-            content=parse(to_type(content), forged_data),
-        )
-        forgery.signature.forge(public_key, forgery.digest(), public=public)
+        forgery.content = parse(to_type(content), forged_data)
+        forgery.signature.forge(public_key, forgery.raw_content(), public=public)
         assert forgery.verify_buggy(root, chain)
         return forgery
 
