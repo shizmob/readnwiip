@@ -217,40 +217,16 @@ class Signature(Struct):
         zero_pos = signature.index(b'\x00')
         return signature[:zero_pos + 1] == content[:zero_pos + 1]
 
-    @classmethod
-    def calc(cls, root: PublicKey, chain: list[Certificate], key: PrivateKey, content: bytes, public=False) -> Signature:
+    def calc(self, key: PrivateKey, content: bytes, public=False) -> None:
         if public:
             content = pkcs1_pad_sig_public(content, key.algorithm)
         else:
             content = pkcs1_pad_sig_private(content, key.algorithm)
-        assert key.subject == chain[-1].subject
-        issuer = '-'.join([root.subject] + [c.content.subject for c in chain])
+        self.value = key.encrypt(content)
 
-        sig = cls(
-            algorithm=key.algorithm,
-            value=b'',
-            issuer=issuer,
-        )
-        sig.value = key.encrypt(sig.digest(content))
-        assert sig.verify(root, chain, content)
-        return sig
-
-    @classmethod
-    def forge(cls, root: PublicKey, chain: list[Certificate], content: bytes, public=False) -> Signature:
-        if chain:
-            key = chain[-1].content
-        else:
-            key = root
-        issuer = '-'.join([root.subject] + [c.content.subject for c in chain])
+    def forge(self, key: PublicKey, content: bytes, public=False) -> None:
         # all-zero ciphertexts decrypt to all-zero plaintexts in RSA, since (m^e mod n) = 0 if m = 0
-        value = bytes(DATA_SIZES[key.algorithm][1])
-        forged_sig = cls(
-            algorithm=key.algorithm,
-            value=value,
-            issuer=issuer,
-        )
-        assert forged_sig.verify_buggy(root, chain, content)
-        return forged_sig
+        self.value = bytes(DATA_SIZES[key.algorithm][1])
 
 def is_forgeable_data(key: PublicKey, issuer: str, content: (bytes, bytearray)) -> bool:
     return Signature(algorithm=key.algorithm, issuer=issuer, value=b'').digest(content)[0] == 0
@@ -271,11 +247,14 @@ class Signed(Struct, generics={SxCT}):
 
     @classmethod
     def calc(cls, root: PublicKey, chain: list[Certificate], key: PrivateKey, content: T, public=False) -> Signed[T]:
-         data = dump(to_type(content), content).getvalue()
-         return cls(
-            signature=Signature.calc(root, chain, key, data, public=public),
-            content=data,
+        issuer = '-'.join([root.subject] + [c.content.subject for c in chain])
+        self = cls(
+            signature=Signature(algorithm=key.algorithm, value=b'', issuer=issuer),
+            content=content,
          )
+        self.signature.calc(key, self.digest(), public=public)
+        assert self.verify(root, chain)
+        return self
 
     @classmethod
     def forge(cls, root: PublicKey, chain: list[Certificate], content: T, tweakable_positions: list[int] = None, public=False) -> Signed[T]:
@@ -310,7 +289,8 @@ class Signed(Struct, generics={SxCT}):
             signature=Signature(algorithm=public_key.algorithm, value=b'', issuer=issuer),
             content=parse(type(content) if not isinstance(content, bytes) else Data(), forged_data),
         )
-        forgery.signature = Signature.forge(root, chain, forgery.digest(), public=public)
+        forgery.signature.forge(public_key, forgery.digest(), public=public)
+        assert forgery.verify_buggy(root, chain)
         return forgery
 
 Certificate = Signed[PublicKey]
