@@ -201,7 +201,7 @@ def insert_mapped_blocks(outfile, block_num_hints: list[int], data: bytes, rever
         block_size = block_pages * NAND_PAGE_SIZE
         chunk = data[n:n + block_size].ljust(block_size, b'\x00')
         n += block_size
-        nand_write_pages(outfile, block_num, chunk)
+        nand_write_blocks(outfile, block_num, chunk)
         if n >= len(data):
             break
 
