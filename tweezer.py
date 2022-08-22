@@ -10,7 +10,7 @@ import itertools
 from Crypto.Cipher import AES
 from Crypto.PublicKey import RSA
 from Crypto.Util.number import bytes_to_long, long_to_bytes
-from sx import Struct, Generic as SxGeneric, Arr, Data, parse, dump
+from sx import Struct, Generic as SxGeneric, Arr, Data, parse, dump, to_type
 
 
 # Ref: https://wiibrew.org/wiki/Certificate_chain, https://www.3dbrew.org/wiki/Ticket
@@ -236,8 +236,7 @@ class Signed(Struct, generics={SxCT}):
     content:   SxCT
 
     def digest(self) -> bytes:
-        data = dump(type(self.content) if not isinstance(self.content, bytes) else Data(), self.content).getvalue()
-        return self.signature.digest(data)
+        return self.signature.digest(dump(to_type(self.content), self.content).getvalue())
 
     def verify(self, root: PublicKey, chain: list[Certificate]) -> bool:
         return self.signature.verify(root, chain, self.digest())
@@ -258,7 +257,7 @@ class Signed(Struct, generics={SxCT}):
 
     @classmethod
     def forge(cls, root: PublicKey, chain: list[Certificate], content: T, tweakable_positions: list[int] = None, public=False) -> Signed[T]:
-        data = dump(type(content) if not isinstance(content, bytes) else Data(), content).getvalue()
+        data = dump(to_type(content), content).getvalue()
         issuer = '-'.join([root.subject] + [c.content.subject for c in chain])
         public_key = chain[-1].content
         if tweakable_positions is None:
@@ -287,7 +286,7 @@ class Signed(Struct, generics={SxCT}):
 
         forgery = cls(
             signature=Signature(algorithm=public_key.algorithm, value=b'', issuer=issuer),
-            content=parse(type(content) if not isinstance(content, bytes) else Data(), forged_data),
+            content=parse(to_type(content), forged_data),
         )
         forgery.signature.forge(public_key, forgery.digest(), public=public)
         assert forgery.verify_buggy(root, chain)
