@@ -9,54 +9,6 @@ from tweezer import Signed
 def align_to(value, n):
     return value + (n - value % n) % n
 
-def get_root_cert_name(profile: str) -> str:
-    return 'Root'
-
-def get_ca_cert_name(profile: str) -> str:
-    return {
-        'retail': 'CA00000001',
-        'dev': 'CA00000002',
-    }[profile]
-
-def get_ticket_cert_name(profile: str) -> str:
-    return {
-        'retail': 'XS00000003',
-        'dev': 'XS00000006',
-    }[profile]
-
-def get_ticket_cert_chain(profile: str) -> tuple[str]:
-    return (
-        get_root_cert_name(profile),
-        get_ca_cert_name(profile),
-        get_ticket_cert_name(profile),
-    )
-
-def get_metadata_cert_name(profile: str) -> str:
-    return {
-        'retail': 'CP00000004',
-        'dev': 'CP00000007'
-    }[profile]
-
-def get_metadata_cert_chain(profile: str) -> tuple[str]:
-    return (
-        get_root_cert_name(profile),
-        get_ca_cert_name(profile),
-        get_metadata_cert_name(profile),
-    )
-
-def get_device_cert_name(profile: str) -> str:
-    return {
-        'retail': 'MS00000002',
-        'dev': 'MS00000003',
-    }[profile]
-
-def get_device_cert_chain(profile: str) -> tuple[str]:
-    return (
-        get_root_cert_name(profile),
-        get_ca_cert_name(profile),
-        get_device_cert_name(profile),
-    )
-
 
 # Title metadata structures, ref:
 # - https://wiibrew.org/wiki/TMD
