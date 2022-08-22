@@ -403,6 +403,21 @@ if __name__ == '__main__':
     import_cmd.set_defaults(func=do_import)
     import_cmd.add_argument('infile', type=argparse.FileType('rb'))
 
+    def do_export(args, parser):
+        cert_dir = os.path.join(args.key_dir, 'certs', args.profile)
+        certs = {}
+        for chain in args.chain:
+            _, chain_certs = load_chain(cert_dir, tuple(chain.split('-')))
+            for cert in chain_certs:
+                certs[cert.signature.issuer, cert.content.subject] = cert
+        ordered_certs = [cert for key, cert in sorted(certs.items())]
+        dump(Arr(Certificate), ordered_certs, args.outfile)
+
+    export_cmd = subcommands.add_parser('export')
+    export_cmd.set_defaults(func=do_export)
+    export_cmd.add_argument('outfile', type=argparse.FileType('wb'))
+    export_cmd.add_argument('chain', nargs='*', help='chain name')
+
     def do_sign(args, parser):
         cert_dir = os.path.join(args.key_dir, 'certs', args.profile)
         root, chain = load_chain(cert_dir, tuple(args.key_chain.split('-')))
