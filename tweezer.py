@@ -35,6 +35,24 @@ KEY_SIZES = {
     Algorithm.ECDSA_SECT233R1_SHA256: 60,
 }
 
+KEY_CRYPT_ALGOS = {
+    Algorithm.RSA4096_SHA1:           'rsa',
+    Algorithm.RSA2048_SHA1:           'rsa',
+    Algorithm.ECDSA_SECT233R1_SHA1:   'ecdsa_sect233r1',
+    Algorithm.RSA4096_SHA256:         'rsa',
+    Algorithm.RSA2048_SHA256:         'rsa',
+    Algorithm.ECDSA_SECT233R1_SHA256: 'ecdsa_sect233r1',
+}
+
+KEY_DIGEST_ALGOS = {
+    Algorithm.RSA4096_SHA1:           'sha1',
+    Algorithm.RSA2048_SHA1:           'sha1',
+    Algorithm.ECDSA_SECT233R1_SHA1:   'sha1',
+    Algorithm.RSA4096_SHA256:         'sha256',
+    Algorithm.RSA2048_SHA256:         'sha256',
+    Algorithm.ECDSA_SECT233R1_SHA256: 'sha256',
+}
+
 DATA_SIZES = {
     Algorithm.RSA4096_SHA1:           (20, 512),
     Algorithm.RSA2048_SHA1:           (20, 256),
@@ -43,6 +61,67 @@ DATA_SIZES = {
     Algorithm.RSA2048_SHA256:         (32, 256),
     Algorithm.ECDSA_SECT233R1_SHA256: (32, 60),
 }
+
+DIGEST_SIG_PREFIXES = {
+    'sha1': bytes.fromhex('30213009 06052B0E 03021A05 000414'),
+}
+
+
+# https://www.rfc-editor.org/rfc/rfc2313#section-8.1
+
+def pkcs1_pad_private(data: bytes, blocksize: int) -> bytes:
+    space = blocksize - (len(data) % blocksize)
+    if space < 3:
+        space += blocksize
+    ps = b'\xff' * (space - 3)
+    return b'\x00\x01' + ps + b'\x00' + data
+
+def pkcs1_unpad_private(data: bytes) -> bytes | None:
+    if len(data) < 3 or data[0] != 0 or data[1] != 1:
+        return None
+    data = data[2:].lstrip(b'\xff')
+    if not data or data[0] != 0:
+        return None
+    return data[1:]
+
+def pkcs1_pad_sig_private(data: bytes, algorithm: Algorithm) -> bytes:
+    prefix = DIGEST_SIG_PREFIXES[KEY_DIGEST_ALGOS[algorithm]]
+    return pkcs1_pad_private(prefix + data, DATA_SIZES[algorithm][1])
+
+def pkcs1_unpad_sig_private(data: bytes, algorithm: Algorithm) -> bytes | None:
+    unpadded = pkcs1_unpad_private(data)
+    if not unpadded:
+        return None
+    prefix = DIGEST_SIG_PREFIXES[KEY_DIGEST_ALGOS[algorithm]]
+    if not unpadded.startswith(prefix):
+        return None
+    return unpadded[len(prefix):]
+
+def pkcs1_pad_public(data: bytes, blocksize: int) -> bytes:
+    space = blocksize - (len(data) % blocksize)
+    if space < 3:
+        space += blocksize
+    ps = b''
+    while len(ps) < space - 3:
+        ps += os.urandom(space - 3 - len(ps)).replace(b'\x00', b'')
+    return b'\x00\x02' + ps + b'\x00' + data
+
+def pkcs1_unpad_public(data: bytes) -> bytes | None:
+    if len(data) < 3 or data[0] != 0 or data[1] != 2:
+        return None
+    data = data[2:]
+    while data[0] != 0:
+        data = data[1:]
+    if not data or data[0] != 0:
+        return None
+    return data[1:]
+
+def pkcs1_pad_sig_public(data: bytes, algorithm: Algorithm) -> bytes:
+    return pkcs1_pad_public(data, DATA_SIZES[algorithm][1])
+
+def pkcs1_unpad_sig_public(data: bytes, algorithm: Algorithm) -> bytes | None:
+    return pkcs1_unpad_public(data)
+
 
 class PublicKey(Struct):
     entry_type: Fixed(0, uint16be)
@@ -55,10 +134,12 @@ class PublicKey(Struct):
     _pad48_X:   Data(52)
 
     def make_key(self) -> RSA:
-        if self.algorithm in (Algorithm.RSA4096_SHA1, Algorithm.RSA2048_SHA1, Algorithm.RSA4096_SHA256, Algorithm.RSA2048_SHA256):
+        crypt_algo = KEY_CRYPT_ALGOS.get(self.algorithm, None)
+        if crypt_algo == 'rsa':
             modulus, exponent = self.value[:-4], self.value[-4:]
             return RSA.construct((int.from_bytes(modulus, byteorder='big'), int.from_bytes(exponent, byteorder='big')))
-        raise NotImplementedError
+        else:
+            raise NotImplementedError('unknown crypt algorithm for {}: {}'.format(self.algorithm, crypt_algo))
 
     def encrypt(self, data: bytes) -> bytes:
         if len(data) > len(self.value):
@@ -88,35 +169,60 @@ class Signature(Struct):
     issuer:     Sized(cstr, 64, hard=True)
 
     def digest(self, content: bytes) -> bytes:
-        if self.algorithm in (Algorithm.RSA4096_SHA1, Algorithm.RSA2048_SHA1, Algorithm.ECDSA_SECT233R1_SHA1):
-            return hashlib.sha1(content).digest()
-        elif self.algorithm in (Algorithm.RSA4096_SHA256, Algorithm.RSA2048_SHA256, Algorithm.ECDSA_SECT233R1_SHA256):
-            return hashlib.sha256(content).digest()
+        digest_algo = KEY_DIGEST_ALGOS.get(self.algorithm, None)
+        if digest_algo == 'sha1':
+            return hashlib.sha1(self.issuer.encode('ascii').ljust(64, b'\x00') + content).digest()
+        elif digest_algo == 'sha256':
+            return hashlib.sha256(self.issuer.encode('ascii').ljust(64, b'\x00') + content).digest()
         else:
-            raise ValueError('no known digest algorithm for {}'.format(self.algorithm))
+            raise NotImplementedError('unknown digest algorithm for {}: {}'.format(self.algorithm, digest_algo))
 
-    def verify_key(self, root: PublicKey, chain: list[Certificate]) -> bool:
-        issuer = '-'.join([root.subject] + [c.content.subject for c in chain])
-        return chain[-1].algorithm == self.algorithm and issuer == self.issuer
-
-    def verify(self, root: PublicKey, chain: list[Certificate], content: bytes) -> bool:
+    def verify_key(self, root: PublicKey, chain: list[Certificate]) -> PublicKey | None:
         for i, cert in enumerate(chain):
             if not cert.verify(root, chain[:i]):
-                return False
-        if not self.verify_key(root, chain):
+                return None
+        issuer = '-'.join([root.subject] + [c.content.subject for c in chain])
+        if issuer != self.issuer:
+            return None
+        if chain:
+            key = chain[-1].content
+        else:
+            key = root
+        if key.algorithm != self.algorithm:
+            return None
+        return key
+
+    def extract_raw_signature(self, key: PublicKey, content: bytes) -> bytes:
+        raw_value = key.decrypt(self.value)
+        value = pkcs1_unpad_sig_private(raw_value, key.algorithm)
+        if not value:
+            value = pkcs1_unpad_sig_public(raw_value, key.algorithm)
+        return value
+
+    def verify(self, root: PublicKey, chain: list[Certificate], content: bytes) -> bool:
+        key = self.verify_key(root, chain)
+        if not key:
             return False
-        return chain[-1].content.decrypt(self.value).startswith(content)
+        signature = self.extract_raw_signature(key, self.value)
+        if not signature:
+            return False
+        return signature == content
 
     def verify_buggy(self, root: PublicKey, chain: list[Certificate], content: bytes) -> bool:
-        for i, cert in enumerate(chain):
-            if not cert.verify_buggy(root, chain[:i]):
-                return False
-        if not self.verify_key(root, chain):
+        key = self.verify_key(root, chain)
+        if not key:
             return False
-        return value[zero_pos] == 0 and value[:zero_pos] == content[:zero_pos]
+        # who needs padding, anyway?
+        signature = key.decrypt(self.value)[-len(content):]
+        zero_pos = signature.index(b'\x00')
+        return signature[:zero_pos + 1] == content[:zero_pos + 1]
 
     @classmethod
-    def calc(cls, root: PublicKey, chain: list[Certificate], key: PrivateKey, content: bytes) -> Signature:
+    def calc(cls, root: PublicKey, chain: list[Certificate], key: PrivateKey, content: bytes, public=False) -> Signature:
+        if public:
+            content = pkcs1_pad_sig_public(content, key.algorithm)
+        else:
+            content = pkcs1_pad_sig_private(content, key.algorithm)
         assert key.subject == chain[-1].subject
         issuer = '-'.join([root.subject] + [c.content.subject for c in chain])
 
@@ -130,7 +236,11 @@ class Signature(Struct):
         return sig
 
     @classmethod
-    def forge(cls, root: PublicKey, chain: list[PublicKey], content: bytes) -> Signature:
+    def forge(cls, root: PublicKey, chain: list[Certificate], content: bytes, public=False) -> Signature:
+        if chain:
+            key = chain[-1].content
+        else:
+            key = root
         issuer = '-'.join([root.subject] + [c.content.subject for c in chain])
         # all-zero ciphertexts decrypt to all-zero plaintexts in RSA, since (m^e mod n) = 0 if m = 0
         value = bytes(DATA_SIZES[key.algorithm][1])
@@ -150,7 +260,7 @@ class Signed(Struct, generics={SxCT}):
     content:   SxCT
 
     def digest(self) -> bytes:
-        data = dump(type(self.content), self.content).getvalue()
+        data = dump(type(self.content) if not isinstance(self.content, bytes) else Data(), self.content).getvalue()
         return self.signature.digest(data)
 
     def verify(self, root: PublicKey, chain: list[Certificate]) -> bool:
@@ -160,16 +270,16 @@ class Signed(Struct, generics={SxCT}):
         return self.signature.verify_buggy(root, chain, self.digest())
 
     @classmethod
-    def calc(cls, root: PublicKey, chain: list[Certificate], key: PrivateKey, content: T) -> Signed[T]:
-         data = dump(type(content), content).getvalue()
+    def calc(cls, root: PublicKey, chain: list[Certificate], key: PrivateKey, content: T, public=False) -> Signed[T]:
+         data = dump(to_type(content), content).getvalue()
          return cls(
-            signature=Signature.calc(root, chain, key, data),
+            signature=Signature.calc(root, chain, key, data, public=public),
             content=data,
          )
 
     @classmethod
-    def forge(cls, root: PublicKey, chain: list[Certificate], content: T, tweakable_positions: list[int] = None) -> Signed[T]:
-        data = dump(type(content), content).getvalue()
+    def forge(cls, root: PublicKey, chain: list[Certificate], content: T, tweakable_positions: list[int] = None, public=False) -> Signed[T]:
+        data = dump(type(content) if not isinstance(content, bytes) else Data(), content).getvalue()
         public_key = chain[-1].content
         if tweakable_positions is None:
             tweakable_positions = [len(data) + i for i in range(256)]
@@ -197,13 +307,14 @@ class Signed(Struct, generics={SxCT}):
 
         forgery = cls(
             signature=Signature(algorithm=public_key.algorithm, value=b''),
-            content=parse(type(content), forged_data),
+            content=parse(type(content) if not isinstance(content, bytes) else Data(), forged_data),
         )
-        forgery.signature = Signature.forge(root, chain, forgery.digest())
+        forgery.signature = Signature.forge(root, chain, forgery.digest(), public=public)
         return forgery
 
 Certificate = Signed[PublicKey]
 SignedData = Signed[Data()]
+
 
 def align_to(value, n):
     return value + (n - value % n) % n
@@ -557,15 +668,16 @@ if __name__ == '__main__':
 
         data = args.infile.read()
         if sign_key:
-            signed_data = SignedData.calc(root, chain, sign_key, data)
+            signed_data = SignedData.calc(root, chain, sign_key, data, public=args.public)
         else:
-            signed_data = SignedData.forge(root, chain, data, args.tweakable_offset)
+            signed_data = SignedData.forge(root, chain, data, args.tweakable_offset, public=args.public)
         dump(SignedData, signed_data, args.outfile)
 
     sign_cmd = subcommands.add_parser('sign')
     sign_cmd.set_defaults(func=do_sign)
     sign_cmd.add_argument('-k', '--key-chain', required=True, help='key chain (separated by `-`) to use for signing')
     sign_cmd.add_argument('-f', '--forge', action='store_true', help='forge signature if no private key is present')
+    sign_cmd.add_argument('-P', '--public', action='store_true', default=False, help='use public key padding (type 2) instead of private key (type 1)')
     sign_cmd.add_argument('-t', '--tweakable-offset', type=int, action='append', help='input offsets that are tweakable for signature forging')
     sign_cmd.add_argument('infile', type=argparse.FileType('rb'))
     sign_cmd.add_argument('outfile', type=argparse.FileType('wb'))
@@ -589,7 +701,7 @@ if __name__ == '__main__':
 
     verify_cmd = subcommands.add_parser('verify')
     verify_cmd.set_defaults(func=do_verify)
-    verify_cmd.add_argument('-k', '--key-chain', required=True, help='key chain (separated by `-`) to use for verification')
+    verify_cmd.add_argument('-k', '--key-chain', help='key chain (separated by `-`) to use for verification')
     verify_cmd.add_argument('-f', '--forged', action='store_true', help='allow forged signature if signature does not verify otherwise')
     verify_cmd.add_argument('infile', type=argparse.FileType('rb'))
     verify_cmd.add_argument('outfile', nargs='?', type=argparse.FileType('wb'))
