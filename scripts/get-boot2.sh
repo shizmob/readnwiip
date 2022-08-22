@@ -41,8 +41,8 @@ outdir="$2"
 
 echo ">> extract"
 runtool tsoprocky -p "$profile" extract-boot2 "$nandfile" "$outdir"/boot2.crt "$outdir"/boot2.stmd "$outdir"/boot2.stik "$outdir"/boot2.ebin
-runtool tweezer -p "$profile" import "$outdir"/boot2.crt
 echo ">> verify"
+runtool tweezer -p "$profile" import "$outdir"/boot2.crt
 runtool tweezer -p "$profile" verify -k $tmd_chain "$outdir"/boot2.stmd "$outdir"/boot2.tmd
 runtool tweezer -p "$profile" verify -k $tik_chain "$outdir"/boot2.stik "$outdir"/boot2.tik
 echo ">> decrypt"
