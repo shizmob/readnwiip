@@ -35,7 +35,7 @@ KEY_SIZES = {
     Algorithm.ECDSA_SECT233R1_SHA256: (60,      60),
 }
 
-KEY_CRYPT_ALGOS = {
+CRYPT_ALGOS = {
     Algorithm.RSA4096_SHA1:           'rsa',
     Algorithm.RSA2048_SHA1:           'rsa',
     Algorithm.ECDSA_SECT233R1_SHA1:   'ecdsa_sect233r1',
@@ -44,7 +44,7 @@ KEY_CRYPT_ALGOS = {
     Algorithm.ECDSA_SECT233R1_SHA256: 'ecdsa_sect233r1',
 }
 
-KEY_DIGEST_ALGOS = {
+DIGEST_ALGOS = {
     Algorithm.RSA4096_SHA1:           'sha1',
     Algorithm.RSA2048_SHA1:           'sha1',
     Algorithm.ECDSA_SECT233R1_SHA1:   'sha1',
@@ -54,16 +54,36 @@ KEY_DIGEST_ALGOS = {
 }
 
 DATA_SIZES = {
-    Algorithm.RSA4096_SHA1:           (20, 512),
-    Algorithm.RSA2048_SHA1:           (20, 256),
-    Algorithm.ECDSA_SECT233R1_SHA1:   (20, 60),
-    Algorithm.RSA4096_SHA256:         (32, 512),
-    Algorithm.RSA2048_SHA256:         (32, 256),
-    Algorithm.ECDSA_SECT233R1_SHA256: (32, 60),
+    Algorithm.RSA4096_SHA1:           512,
+    Algorithm.RSA2048_SHA1:           256,
+    Algorithm.ECDSA_SECT233R1_SHA1:   60,
+    Algorithm.RSA4096_SHA256:         512,
+    Algorithm.RSA2048_SHA256:         60,
+    Algorithm.ECDSA_SECT233R1_SHA256: 60,
+}
+
+DIGEST_SIZES = {
+    'sha1':   20,
+    'sha256': 32,
 }
 
 DIGEST_SIG_PREFIXES = {
-    'sha1': bytes.fromhex('30213009 06052B0E 03021A05 000414'),
+    # OID 1.3.14.3.2.26, 0x14-length hash
+    'sha1': bytes.fromhex("""
+30 21
+  30 09
+     06 05 2B0E03021A
+     05 00
+  04 14
+"""),
+    # OID 1.2.840.113549.1.1.11, 0x20-length hash
+    'sha256': bytes.fromhex("""
+30 31
+  30 0D
+     06 09 2A864886F70D01010B
+     05 00
+  04 20
+"""),
 }
 
 
@@ -85,14 +105,14 @@ def pkcs1_unpad_private(data: bytes) -> bytes | None:
     return data[1:]
 
 def pkcs1_pad_sig_private(data: bytes, algorithm: Algorithm) -> bytes:
-    prefix = DIGEST_SIG_PREFIXES[KEY_DIGEST_ALGOS[algorithm]]
-    return pkcs1_pad_private(prefix + data, DATA_SIZES[algorithm][1])
+    prefix = DIGEST_SIG_PREFIXES[DIGEST_ALGOS[algorithm]]
+    return pkcs1_pad_private(prefix + data, DATA_SIZES[algorithm])
 
 def pkcs1_unpad_sig_private(data: bytes, algorithm: Algorithm) -> bytes | None:
     unpadded = pkcs1_unpad_private(data)
     if not unpadded:
         return None
-    prefix = DIGEST_SIG_PREFIXES[KEY_DIGEST_ALGOS[algorithm]]
+    prefix = DIGEST_SIG_PREFIXES[DIGEST_ALGOS[algorithm]]
     if not unpadded.startswith(prefix):
         return None
     return unpadded[len(prefix):]
@@ -117,7 +137,7 @@ def pkcs1_unpad_public(data: bytes) -> bytes | None:
     return data[1:]
 
 def pkcs1_pad_sig_public(data: bytes, algorithm: Algorithm) -> bytes:
-    return pkcs1_pad_public(data, DATA_SIZES[algorithm][1])
+    return pkcs1_pad_public(data, DATA_SIZES[algorithm])
 
 def pkcs1_unpad_sig_public(data: bytes, algorithm: Algorithm) -> bytes | None:
     return pkcs1_unpad_public(data)
@@ -134,7 +154,7 @@ class PublicKey(Struct):
     _pad48_X:   Data(52)
 
     def make_key(self) -> RSA:
-        crypt_algo = KEY_CRYPT_ALGOS.get(self.algorithm, None)
+        crypt_algo = CRYPT_ALGOS.get(self.algorithm, None)
         if crypt_algo == 'rsa':
             modulus, exponent = self.value[:-4], self.value[-4:]
             return RSA.construct((int.from_bytes(modulus, byteorder='big'), int.from_bytes(exponent, byteorder='big')))
@@ -163,7 +183,7 @@ class PrivateKey(Struct):
 
     def make_key(self) -> RSA:
         public_key = self.public_key.make_key()
-        crypt_algo = KEY_CRYPT_ALGOS.get(self.algorithm, None)
+        crypt_algo = CRYPT_ALGOS.get(self.algorithm, None)
         if crypt_algo == 'rsa':
             return RSA.construct((public_key.n, public_key.e, int.from_bytes(self.value, byteorder='big')))
         else:
@@ -192,13 +212,13 @@ class Signature(Struct):
     entry_type: Fixed(1, uint16be)
     algorithm:  Enum(Algorithm, uint16be)
     value:      Switch(selector=self.algorithm, options={
-        algo: Data(DATA_SIZES[algo][1]) for algo in Algorithm
+        algo: Data(DATA_SIZES[algo]) for algo in Algorithm
     })
     _pad4_X:    Data(60)
     issuer:     Sized(cstr, 64, hard=True)
 
     def digest(self, content: bytes) -> bytes:
-        digest_algo = KEY_DIGEST_ALGOS.get(self.algorithm, None)
+        digest_algo = DIGEST_ALGOS.get(self.algorithm, None)
         if digest_algo == 'sha1':
             return hashlib.sha1(self.issuer.encode('ascii').ljust(64, b'\x00') + content).digest()
         elif digest_algo == 'sha256':
@@ -254,7 +274,7 @@ class Signature(Struct):
     def forge(self, key: PublicKey, content: bytes, public=False) -> None:
         assert self.is_forgeable_data(content)
         # all-zero ciphertexts decrypt to all-zero plaintexts in RSA, since (m^e mod n) = 0 if m = 0
-        self.value = bytes(DATA_SIZES[key.algorithm][1])
+        self.value = bytes(DATA_SIZES[key.algorithm])
 
     def is_forgeable_data(self, content: bytes) -> bool:
         return self.digest(content)[0] == 0
