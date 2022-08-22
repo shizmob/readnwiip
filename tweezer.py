@@ -498,6 +498,10 @@ class TitleContentChunkV0(Struct):
             size = align_to(size, 16)
         return size
 
+    def update(self, content: bytes) -> bytes:
+        self.size = len(content)
+        self.digest = hashlib.sha1(content).digest()
+
 class TitleContentChunkV1(Struct):
     id:     uint32be
     index:  uint16be
@@ -560,12 +564,6 @@ class TitleMetadataContent(Struct):
         1: TitleMetadataV1Content,
     })
 
-    def calc_data_size(self):
-        size = 0
-        for chunk in self.version_content.content_chunks:
-            size += chunk.calc_data_size()
-        return size
-
 TitleMetadata = Signed[TitleMetadataContent]
 
 
@@ -612,20 +610,29 @@ class TicketContent(Struct):
             title_key_iv = dump(TitleID, self.title_id).getvalue() + bytes(8)
         return AES.new(common_keys[self.key_slot], AES.MODE_CBC, iv=title_key_iv).decrypt(self.enc_title_key)
 
-    def decrypt(self, common_keys: list[bytes], metadata: TitleMetadataContent, content: bytes) -> bytes:
+    def encrypt(self, common_keys: list[bytes], metadata: TitleMetadataContent, index: int, content: bytes) -> bytes:
         title_key = self.calc_title_key(common_keys)
 
-        data = b''
-        n = 0
-        for chunk in metadata.version_content.content_chunks:
-            chunk_size = chunk.calc_data_size()
-            chunk_data = content[n:n + chunk_size]
-            n += chunk_size
+        chunk = metadata.version_content.content_chunks[index]
+        size = chunk.calc_data_size()
+        dec_data = content.ljust(size, b'\x00')
 
-            if chunk.type & ContentType.Encrypted:
-                iv = chunk.index.to_bytes(2, byteorder='big') + bytes(14)
-                chunk_data = AES.new(title_key, AES.MODE_CBC, iv=iv).decrypt(chunk_data)[:chunk.size]
-            data += chunk_data
+        if chunk.type & ContentType.Encrypted:
+            iv = chunk.index.to_bytes(2, byteorder='big') + bytes(14)
+            data = AES.new(title_key, AES.MODE_CBC, iv=iv).encrypt(dec_data)
+
+        return data
+
+    def decrypt(self, common_keys: list[bytes], metadata: TitleMetadataContent, index: int, content: bytes) -> bytes:
+        title_key = self.calc_title_key(common_keys)
+
+        chunk = metadata.version_content.content_chunks[index]
+        size = chunk.calc_data_size()
+        data = content[:size]
+
+        if chunk.type & ContentType.Encrypted:
+            iv = chunk.index.to_bytes(2, byteorder='big') + bytes(14)
+            data = AES.new(title_key, AES.MODE_CBC, iv=iv).decrypt(data)[:chunk.size]
 
         return data
 
@@ -715,30 +722,60 @@ if __name__ == '__main__':
     extract_cmd.add_argument('infile', type=argparse.FileType('rb'))
     extract_cmd.add_argument('outfile', nargs='?', type=argparse.FileType('wb'))
 
+    def do_encrypt(args, parser):
+        key_dir = os.path.join(args.key_dir, 'keys', args.profile)
+        with open(os.path.join(key_dir, 'common.key'), 'rb') as f:
+            common_keys = [f.read()]
+
+        metadata = parse(TitleMetadataContent, args.metafile)
+        ticket = parse(TicketContent, args.ticketfile)
+        dec_data = args.infile.read()
+        args.chunkfile.write(ticket.encrypt(common_keys, metadata, args.index, dec_data))
+
+    encrypt_cmd = subcommands.add_parser('encrypt')
+    encrypt_cmd.set_defaults(func=do_encrypt)
+    encrypt_cmd.add_argument('-i', '--index', type=int, default=0)
+    encrypt_cmd.add_argument('metafile', type=argparse.FileType('rb'))
+    encrypt_cmd.add_argument('ticketfile', type=argparse.FileType('rb'))
+    encrypt_cmd.add_argument('infile', type=argparse.FileType('rb'))
+    encrypt_cmd.add_argument('chunkfile', type=argparse.FileType('wb'))
+
     def do_decrypt(args, parser):
         key_dir = os.path.join(args.key_dir, 'keys', args.profile)
         with open(os.path.join(key_dir, 'common.key'), 'rb') as f:
             common_keys = [f.read()]
 
-        try:
-            metadata = parse(TitleMetadata, args.metafile).content
-        except:
-            args.metafile.seek(0, os.SEEK_SET)
-            metadata = parse(TitleMetadataContent, args.metafile).content
-        try:
-            ticket = parse(Ticket, args.ticketfile).content
-        except:
-            args.ticketfile.seek(0, os.SEEK_SET)
-            ticket = parse(TicketContent, args.ticketfile)
-        enc_data = args.appfile.read()
-        args.outfile.write(ticket.decrypt(common_keys, metadata, enc_data))
+        metadata = parse(TitleMetadataContent, args.metafile)
+        ticket = parse(TicketContent, args.ticketfile)
+        enc_data = args.chunkfile.read()
+        args.outfile.write(ticket.decrypt(common_keys, metadata, args.index, enc_data))
 
     decrypt_cmd = subcommands.add_parser('decrypt')
     decrypt_cmd.set_defaults(func=do_decrypt)
+    decrypt_cmd.add_argument('-i', '--index', type=int, default=0)
     decrypt_cmd.add_argument('metafile', type=argparse.FileType('rb'))
     decrypt_cmd.add_argument('ticketfile', type=argparse.FileType('rb'))
-    decrypt_cmd.add_argument('appfile', type=argparse.FileType('rb'))
+    decrypt_cmd.add_argument('chunkfile', type=argparse.FileType('rb'))
     decrypt_cmd.add_argument('outfile', type=argparse.FileType('wb'))
+
+    def do_update(args, parser):
+        key_dir = os.path.join(args.key_dir, 'keys', args.profile)
+        with open(os.path.join(key_dir, 'common.key'), 'rb') as f:
+            common_keys = [f.read()]
+
+        metadata = parse(TitleMetadataContent, args.metafile)
+
+        data = args.chunkfile.read()
+        metadata.version_content.content_chunks[args.index].update(data)
+
+        dump(TitleMetadataContent, metadata, args.outfile)
+
+    update_cmd = subcommands.add_parser('update')
+    update_cmd.set_defaults(func=do_update)
+    update_cmd.add_argument('-i', '--index', type=int, default=0)
+    update_cmd.add_argument('metafile', type=argparse.FileType('r+b'))
+    update_cmd.add_argument('chunkfile', type=argparse.FileType('rb'))
+    update_cmd.add_argument('outfile', type=argparse.FileType('wb'))
 
     args = parser.parse_args()
     if not args.func:

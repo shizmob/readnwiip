@@ -21,6 +21,18 @@ class WADv0(Struct):
 
     data:             Ref(Data(), self.data_offset)
 
+    def extract_chunks(self):
+        chunks = []
+        n = 0
+
+        for chunk in self.tmd.content.version_content.content_chunks:
+            data_size = chunk.calc_data_size()
+            chunks.append(self.data[n:n + data_size])
+            n += data_size
+
+        return chunks
+
+
 class InstallWAD(Struct):
     cert_chain_size:    uint32be
     _unk04:             Fixed(0, uint32be)
