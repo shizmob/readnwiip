@@ -27,12 +27,12 @@ class Algorithm(enum.Enum):
     ECDSA_SECT233R1_SHA256 = 0x0005
 
 KEY_SIZES = {
-    Algorithm.RSA4096_SHA1:           512 + 4,
-    Algorithm.RSA2048_SHA1:           256 + 4,
-    Algorithm.ECDSA_SECT233R1_SHA1:   60,
-    Algorithm.RSA4096_SHA256:         512 + 4,
-    Algorithm.RSA2048_SHA256:         256 + 4,
-    Algorithm.ECDSA_SECT233R1_SHA256: 60,
+    Algorithm.RSA4096_SHA1:           (512 + 4, 512),
+    Algorithm.RSA2048_SHA1:           (256 + 4, 256),
+    Algorithm.ECDSA_SECT233R1_SHA1:   (60,      60),
+    Algorithm.RSA4096_SHA256:         (512 + 4, 512),
+    Algorithm.RSA2048_SHA256:         (256 + 4, 256),
+    Algorithm.ECDSA_SECT233R1_SHA256: (60,      60),
 }
 
 KEY_CRYPT_ALGOS = {
@@ -129,7 +129,7 @@ class PublicKey(Struct):
     subject:    Sized(cstr, 64, hard=True)
     unk44:      Data(4)
     value:      Switch(selector=self.algorithm, options={
-        algo: Data(KEY_SIZES[algo]) for algo in Algorithm
+        algo: Data(KEY_SIZES[algo][0]) for algo in Algorithm
     })
     _pad48_X:   Data(52)
 
@@ -144,20 +144,49 @@ class PublicKey(Struct):
     def encrypt(self, data: bytes) -> bytes:
         if len(data) > len(self.value):
             raise ValueError('key of type {} cannot encrypt data larger than {} bytes (found {} bytes)'.format(
-                self.algorithm.name, len(self.value.value), len(data),
-            ))
-        key = self.make_key()
-        return key.encrypt(data)
-
-    def decrypt(self, data: bytes) -> bytes:
-        if len(data) > len(self.value):
-            raise ValueError('key of type {} cannot encrypt data larger than {} bytes (found {} bytes)'.format(
-                self.algorithm.name, len(self.value.value), len(data),
+                self.algorithm.name, len(self.value), len(data),
             ))
         key = self.make_key()
         nval = bytes_to_long(data)
         ndec = key._encrypt(nval)
         return long_to_bytes(ndec, key.size_in_bytes())
+
+    def decrypt_sig(self, data: bytes) -> bytes:
+        return self.encrypt(data)
+
+# Complete fabrication
+class PrivateKey(Struct):
+    public_key:  PublicKey
+    value:       Switch(selector=self.public_key.algorithm, options={
+        algo: Data(KEY_SIZES[algo][1]) for algo in Algorithm
+    })
+
+    def make_key(self) -> RSA:
+        public_key = self.public_key.make_key()
+        crypt_algo = KEY_CRYPT_ALGOS.get(self.algorithm, None)
+        if crypt_algo == 'rsa':
+            return RSA.construct((public_key.n, public_key.e, int.from_bytes(self.value, byteorder='big')))
+        else:
+            raise NotImplementedError('unknown crypt algorithm for {}: {}'.format(self.algorithm, crypt_algo))
+
+    def encrypt(self, data: bytes) -> bytes:
+        return self.public_key.encrypt(data)
+
+    def decrypt(self, data: bytes) -> bytes:
+        if len(data) > len(self.value):
+            raise ValueError('key of type {} cannot encrypt data larger than {} bytes (found {} bytes)'.format(
+                self.algorithm.name, len(self.value), len(data),
+            ))
+        key = self.make_key()
+        nval = bytes_to_long(data)
+        ndec = key._decrypt(nval)
+        return long_to_bytes(ndec, key.size_in_bytes())
+
+    def encrypt_sig(self, data: bytes) -> bytes:
+        return self.decrypt(data)
+
+    def decrypt_sig(self, data: bytes) -> bytes:
+        return self.public_key.decrypt_sig(data)
 
 class Signature(Struct):
     entry_type: Fixed(1, uint16be)
@@ -192,18 +221,14 @@ class Signature(Struct):
             return None
         return key
 
-    def extract_raw_signature(self, key: PublicKey, content: bytes) -> bytes:
-        raw_value = key.decrypt(self.value)
-        value = pkcs1_unpad_sig_private(raw_value, key.algorithm)
-        if not value:
-            value = pkcs1_unpad_sig_public(raw_value, key.algorithm)
-        return value
-
     def verify(self, root: PublicKey, chain: list[Certificate], content: bytes) -> bool:
         key = self.verify_key(root, chain)
         if not key:
             return False
-        signature = self.extract_raw_signature(key, self.value)
+        raw_signature = key.decrypt_sig(self.value)
+        signature = pkcs1_unpad_sig_private(raw_signature, key.algorithm)
+        if not signature:
+            signature = pkcs1_unpad_sig_public(raw_signature, key.algorithm)
         if not signature:
             return False
         return signature == content
@@ -213,16 +238,16 @@ class Signature(Struct):
         if not key:
             return False
         # who needs padding, anyway?
-        signature = key.decrypt(self.value)[-len(content):]
+        signature = key.decrypt_sig(self.value)[-len(content):]
         zero_pos = signature.index(b'\x00')
         return signature[:zero_pos + 1] == content[:zero_pos + 1]
 
     def calc(self, key: PrivateKey, content: bytes, public=False) -> None:
         if public:
-            content = pkcs1_pad_sig_public(content, key.algorithm)
+            content = pkcs1_pad_sig_public(content, key.public_key.algorithm)
         else:
-            content = pkcs1_pad_sig_private(content, key.algorithm)
-        self.value = key.encrypt(content)
+            content = pkcs1_pad_sig_private(content, key.public_key.algorithm)
+        self.value = key.encrypt_sig(content)
 
     def forge(self, key: PublicKey, content: bytes, public=False) -> None:
         # all-zero ciphertexts decrypt to all-zero plaintexts in RSA, since (m^e mod n) = 0 if m = 0
