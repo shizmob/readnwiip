@@ -1,0 +1,7 @@
+__pycache__
+*.pyc
+*.pyo
+*.tmd
+*.tik
+*.app
+*.bin
