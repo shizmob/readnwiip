@@ -3,7 +3,6 @@ import enum
 import hashlib
 from Crypto.Cipher import AES
 from sx import Struct, parse, dump
-from tweezer import Signed
 
 
 def align_to(value, n):
@@ -127,7 +126,7 @@ class TitleMetadataV1Content(Struct):
     content_infos:       Arr(TitleContentInfo, count=64)
     content_chunks:      Arr(TitleContentChunkV1, count=self.content_count)
 
-class TitleMetadataContent(Struct):
+class TitleMetadata(Struct):
     version:         uint8
     ca_crl_version:  uint8
     crl_version:     uint8
@@ -140,8 +139,6 @@ class TitleMetadataContent(Struct):
         0: TitleMetadataV0Content,
         1: TitleMetadataV1Content,
     })
-
-TitleMetadata = Signed[TitleMetadataContent]
 
 
 # Ticket structures; ref:
@@ -158,7 +155,7 @@ class TicketLimit(Struct):
     type:  Enum(LimitType, uint32be)
     value: uint32be
 
-class TicketContent(Struct):
+class Ticket(Struct):
     ec_key:         Data(60)
     version:        uint8
     ca_crl_version: uint8
@@ -213,8 +210,6 @@ class TicketContent(Struct):
 
         return data
 
-Ticket = Signed[TicketContent]
-
 
 if __name__ == '__main__':
     import argparse
@@ -233,8 +228,8 @@ if __name__ == '__main__':
         with open(os.path.join(key_dir, 'common.key'), 'rb') as f:
             common_keys = [f.read()]
 
-        metadata = parse(TitleMetadataContent, args.metafile)
-        ticket = parse(TicketContent, args.ticketfile)
+        metadata = parse(TitleMetadata, args.metafile)
+        ticket = parse(Ticket, args.ticketfile)
         dec_data = args.infile.read()
         args.chunkfile.write(ticket.encrypt(common_keys, metadata, args.index, dec_data))
 
@@ -251,8 +246,8 @@ if __name__ == '__main__':
         with open(os.path.join(key_dir, 'common.key'), 'rb') as f:
             common_keys = [f.read()]
 
-        metadata = parse(TitleMetadataContent, args.metafile)
-        ticket = parse(TicketContent, args.ticketfile)
+        metadata = parse(TitleMetadata, args.metafile)
+        ticket = parse(Ticket, args.ticketfile)
         enc_data = args.chunkfile.read()
         args.outfile.write(ticket.decrypt(common_keys, metadata, args.index, enc_data))
 
@@ -269,12 +264,12 @@ if __name__ == '__main__':
         with open(os.path.join(key_dir, 'common.key'), 'rb') as f:
             common_keys = [f.read()]
 
-        metadata = parse(TitleMetadataContent, args.metafile)
+        metadata = parse(TitleMetadata, args.metafile)
 
         data = args.chunkfile.read()
         metadata.version_content.content_chunks[args.index].update(data)
 
-        dump(TitleMetadataContent, metadata, args.outfile)
+        dump(TitleMetadata, metadata, args.outfile)
 
     update_cmd = subcommands.add_parser('update')
     update_cmd.set_defaults(func=do_update)

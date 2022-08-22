@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-from sx import Struct, Arr, parse, dump
+from sx import Struct, parse, dump
 import hashlib
-from tweezer import Certificate
+from tweezer import Certificate, CertificateChain, Signed
 from tong import Ticket, TitleMetadata, TitleID, ContentType
 
 
@@ -14,9 +14,9 @@ class WADv0(Struct):
     tmd_size:         uint32be
     _unk14:           Data(12)
 
-    cert_chain:       Sized(Arr(Certificate), self.cert_chain_size)
-    tik:              Sized(Ticket, self.tik_size)
-    tmd:              Sized(TitleMetadata, self.tmd_size)
+    cert_chain:       Sized(CertificateChain, self.cert_chain_size)
+    tik:              Sized(Signed[Ticket], self.tik_size)
+    tmd:              Sized(Signed[TitleMetadata], self.tmd_size)
 
     data:             Ref(Data(), self.data_offset)
 
@@ -40,9 +40,9 @@ class InstallWAD(Struct):
     data_size:          uint32be
     footer_size:        uint32be
 
-    cert_chain:         AlignedTo(Sized(Arr(Certificate), self.cert_chain_size), 0x40)
-    tik:                AlignedTo(Sized(Ticket, self.tik_size), 0x40)
-    tmd:                AlignedTo(Sized(TitleMetadata, self.tmd_size), 0x40)
+    cert_chain:         AlignedTo(Sized(CertificateChain, self.cert_chain_size), 0x40)
+    tik:                AlignedTo(Sized(Signed[Ticket], self.tik_size), 0x40)
+    tmd:                AlignedTo(Sized(Signed[TitleMetadata], self.tmd_size), 0x40)
     data:               AlignedTo(Data(self.data_size), 0x40)
     footer:             AlignedTo(Data(self.footer_size), 0x40)
 
@@ -58,7 +58,7 @@ class BackupWAD(Struct):
     savegame_mac:       Data(6)
     _pad66:             Data(2)
 
-    tmd:                AlignedTo(Sized(TitleMetadata, self.tmd_size), 0x40)
+    tmd:                AlignedTo(Sized(Signed[TitleMetadata], self.tmd_size), 0x40)
 
 class WADv1(Struct):
     size:    uint32be
@@ -104,13 +104,13 @@ if __name__ == '__main__':
         out_prefix = os.path.join(args.outdir, os.path.basename(os.path.splitext(args.infile.name)[0]))
         if cert_chain is not None:
             with open(out_prefix + '.crt', 'wb') as f:
-                dump(Arr(Certificate), cert_chain, f)
+                dump(CertificateChain, cert_chain, f)
         if tmd:
             with open(out_prefix + '.tmd', 'wb') as f:
-                dump(TitleMetadata, tmd, f)
+                dump(Signed[TitleMetadata], tmd, f)
         if tik:
             with open(out_prefix + '.tik', 'wb') as f:
-                dump(Ticket, tik, f)
+                dump(Signed[Ticket], tik, f)
         if data is not None:
             with open(out_prefix + '.bin', 'wb') as f:
                 f.write(data)

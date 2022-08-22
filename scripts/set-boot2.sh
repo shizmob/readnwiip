@@ -46,6 +46,6 @@ runtool tong -p "$profile" update -i 0 "$indir"/boot2.tmd "$indir"/boot2.bin "$i
 runtool tong -p "$profile" encrypt -i 0 "$indir"/boot2.new.tmd "$indir"/boot2.tik "$indir"/boot2.bin "$indir"/boot2.new.ebin
 echo ">> sign"
 runtool tweezer -p "$profile" sign -k $tmd_chain -f $sign_args -t 70 -t 71 -t 72 -t 73 "$indir"/boot2.new.tmd "$indir"/boot2.new.stmd
-runtool tweezer -p "$profile" export "$outdir"/boot2.new.crt $tmd_chain $tik_chain
+runtool tweezer -p "$profile" export-chains "$outdir"/boot2.new.crt $tmd_chain $tik_chain
 echo ">> insert"
 runtool tsoprocky -p "$profile" insert-boot2 "$nandfile" "$indir"/boot2.new.crt "$indir"/boot2.new.stmd "$indir"/boot2.stik "$indir"/boot2.new.ebin

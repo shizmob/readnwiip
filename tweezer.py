@@ -344,6 +344,7 @@ class Signed(Struct, generics={SxCT}):
         return forgery
 
 Certificate = Signed[PublicKey]
+CertificateChain = Arr(Certificate)
 SignedData = Signed[Data()]
 
 
@@ -425,16 +426,17 @@ if __name__ == '__main__':
 
     subcommands = parser.add_subparsers()
 
-    def do_import(args, parser):
+    def do_import_chains(args, parser):
         cert_dir = os.path.join(args.key_dir, 'certs', args.profile)
-        chain = parse(Arr(Certificate), args.infile)
-        save_chains(cert_dir, chain)
+        for infile in args.infile:
+            chain = parse(CertificateChain, infile)
+            save_chains(cert_dir, chain)
 
-    import_cmd = subcommands.add_parser('import')
-    import_cmd.set_defaults(func=do_import)
-    import_cmd.add_argument('infile', type=argparse.FileType('rb'))
+    import_chains_cmd = subcommands.add_parser('import-chains')
+    import_chains_cmd.set_defaults(func=do_import_chains)
+    import_chains_cmd.add_argument('infile', nargs='*', type=argparse.FileType('rb'))
 
-    def do_export(args, parser):
+    def do_export_chains(args, parser):
         cert_dir = os.path.join(args.key_dir, 'certs', args.profile)
         certs = {}
         for chain in args.chain:
@@ -442,12 +444,12 @@ if __name__ == '__main__':
             for cert in chain_certs:
                 certs[cert.signature.issuer, cert.content.subject] = cert
         ordered_certs = [cert for key, cert in sorted(certs.items())]
-        dump(Arr(Certificate), ordered_certs, args.outfile)
+        dump(CertificateChain, ordered_certs, args.outfile)
 
-    export_cmd = subcommands.add_parser('export')
-    export_cmd.set_defaults(func=do_export)
-    export_cmd.add_argument('outfile', type=argparse.FileType('wb'))
-    export_cmd.add_argument('chain', nargs='*', help='chain name')
+    export_chains_cmd = subcommands.add_parser('export-chains')
+    export_chains_cmd.set_defaults(func=do_export_chains)
+    export_chains_cmd.add_argument('outfile', type=argparse.FileType('wb'))
+    export_chains_cmd.add_argument('chain', nargs='*', help='chain name')
 
     def do_sign(args, parser):
         cert_dir = os.path.join(args.key_dir, 'certs', args.profile)

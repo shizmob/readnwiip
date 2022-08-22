@@ -4,8 +4,8 @@ import os
 from collections import Counter
 from Crypto.Cipher import AES
 
-from sx import Struct, Arr, uint32be, parse, dump, sizeof
-from tweezer import Certificate
+from sx import Struct, parse, dump, sizeof
+from tweezer import Certificate, CertificateChain, Signed
 from tong import TitleMetadata, Ticket
 from texel import WADv0
 
@@ -260,13 +260,13 @@ if __name__ == '__main__':
 
         if not args.chainfile:
             args.chainfile = open(prefix + '.boot2.crt', 'wb')
-        dump(Arr(Certificate), boot2.cert_chain, args.chainfile)
+        dump(CertificateChain, boot2.cert_chain, args.chainfile)
         if not args.metafile:
             args.metafile = open(prefix + '.boot2.tmd', 'wb')
-        dump(TitleMetadata, boot2.tmd, args.metafile)
+        dump(Signed[TitleMetadata], boot2.tmd, args.metafile)
         if not args.ticketfile:
             args.ticketfile = open(prefix + '.boot2.tik', 'wb')
-        dump(Ticket, boot2.tik, args.ticketfile)
+        dump(Signed[Ticket], boot2.tik, args.ticketfile)
         for (chunk, chunkfile) in zip(chunks, args.chunkfiles):
             chunkfile.write(chunk)
 
@@ -280,9 +280,9 @@ if __name__ == '__main__':
     extract_boot2_cmd.add_argument('chunkfiles', nargs='*', type=argparse.FileType('wb'))
 
     def do_insert_boot2(args, parser):
-        cert_chain = parse(Arr(Certificate), args.chainfile)
-        tmd = parse(TitleMetadata, args.metafile)
-        tik = parse(Ticket, args.ticketfile)
+        cert_chain = parse(CertificateChain, args.chainfile)
+        tmd = parse(Signed[TitleMetadata], args.metafile)
+        tik = parse(Signed[Ticket], args.ticketfile)
         data = b''
         for chunk in args.chunkfiles:
             data += chunk.read()
