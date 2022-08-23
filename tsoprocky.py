@@ -34,28 +34,33 @@ def nand_calc_ecc(data: bytes) -> int:
         pa |= (nand_parity_counts[a] & 1) << i
         pb |= (nand_parity_counts[b] & 1) << i
 
-    return (pa | (pb << 16))
+    return pa, pb
 
 def nand_check_ecc(data: bytearray, ecc: bytes) -> bool:
     if ecc == b'\xff' * 16:
         return True
 
     for i in range(4):
-        ecc_read = int.from_bytes(ecc[4 * i:4 * i + 4], 'little')
-        ecc_calc = nand_calc_ecc(data[512 * i:512 * i + 512])
-        ecc_diff = ecc_read ^ ecc_calc
+        ecc_read_even = int.from_bytes(ecc[4 * i:4 * i + 2], 'little')
+        ecc_read_odd = int.from_bytes(ecc[4 * i + 2:4 * i + 4], 'little')
+        ecc_calc_even, ecc_calc_odd = nand_calc_ecc(data[512 * i:512 * i + 512])
+        ecc_diff = (ecc_read_odd << 16 | ecc_read_even) ^ (ecc_calc_odd << 16 | ecc_calc_even)
         if ecc_diff:
             # ECC error, try to correct it
             if not (ecc_diff - 1) & ecc_diff:
                 # single-bit ECC error
-                pass
+                print('ecc:', 'corrected ECC error')
             else:
                 # single-bit data error
-                if False:
+                ecc_diff_even = ecc_diff & 0xFFF
+                ecc_diff_odd = ecc_diff >> 16
+                if ecc_diff_even ^ ecc_diff_odd == 0xFFF:
                     # correctable
-                    pass
+                    print('ecc:', 'corrected data error')
+                    data[ecc_diff_odd // 8] ^= 1 << (ecc_diff_odd & 7)
                 else:
                     # uncorrectable
+                    print('ecc:', 'uncorrectable data error')
                     return False
 
     return True
@@ -89,7 +94,7 @@ def nand_read_pages(infile, offset: int, count: int, hmac_key: bytes = None) -> 
         page_data = bytearray(infile.read(NAND_PAGE_SIZE))
         page_spare = infile.read(NAND_SPARE_SIZE)
         if not nand_check_spare(page_data, page_spare, hmac_key=hmac_key):
-            raise ValueError
+            raise ValueError('incorrect spare data on NAND page {}'.format(offset + i))
         data[i * NAND_PAGE_SIZE:(i + 1) * NAND_PAGE_SIZE] = page_data
     return data
 
