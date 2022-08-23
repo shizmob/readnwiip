@@ -78,13 +78,6 @@ class TitleContentChunkV0(Struct):
         self.size = len(content)
         self.digest = hashlib.sha1(content).digest()
 
-class TitleContentChunkV1(Struct):
-    id:     uint32be
-    index:  uint16be
-    type:   Enum(ContentType, uint16be)
-    size:   uint64be
-    digest: Data(32)
-
 class Region(enum.Enum):
     JPN = 0
     USA = 1
@@ -110,6 +103,13 @@ class TitleContentInfo(Struct):
     index_offset:  uint16be
     chunk_count:   uint16be
     chunk_digest:  Data(32)
+
+class TitleContentChunkV1(Struct):
+    id:     uint32be
+    index:  uint16be
+    type:   Enum(ContentType, uint16be)
+    size:   uint64be
+    digest: Data(32)
 
 class TitleMetadataV1Content(Struct):
     save_data_size:      uint32le
