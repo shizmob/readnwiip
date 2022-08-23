@@ -17,62 +17,63 @@ nand_parity_counts = bytes(
     bin(x).count('1') for x in range(256)
 )
 
-def nand_calc_ecc(data: bytes) -> int:
-    e = [[0, 0] for _ in range(3 + 9)]
+def nand_calc_ecc(data: bytes) -> tuple[int, int]:
+    # these orders are NOT, in fact, rabbits
+    bit_order = 3
+    byte_order = (len(data) - 1).bit_length()
 
-    for i, x in enumerate(data):
-        for j in range(9):
-            e[3 + j][(i >> j) & 1] ^= x
+    e = [[0, 0] for _ in range(bit_order + byte_order)]
 
-    x = e[3][0] ^ e[3][1]
+    for pos, x in enumerate(data):
+        for i in range(byte_order):
+            e[bit_order + i][(pos >> i) & 1] ^= x
+
+    x = e[bit_order][0] ^ e[bit_order][1]
     e[0] = [x & 0b01010101, x & 0b10101010]
     e[1] = [x & 0b00110011, x & 0b11001100]
     e[2] = [x & 0b00001111, x & 0b11110000]
 
-    pa = pb = 0
-    for i, (a, b) in enumerate(e):
-        pa |= (nand_parity_counts[a] & 1) << i
-        pb |= (nand_parity_counts[b] & 1) << i
+    peven = podd = 0
+    for i, (even, odd) in enumerate(e):
+        peven |= (nand_parity_counts[even] & 1) << i
+        podd |= (nand_parity_counts[odd] & 1) << i
 
-    return pa, pb
+    return peven, podd
 
 def nand_check_ecc(data: bytearray, ecc: bytes) -> bool:
     if ecc == b'\xff' * 16:
         return True
 
     for i in range(4):
-        ecc_read_even = int.from_bytes(ecc[4 * i:4 * i + 2], 'little')
-        ecc_read_odd = int.from_bytes(ecc[4 * i + 2:4 * i + 4], 'little')
-        ecc_calc_even, ecc_calc_odd = nand_calc_ecc(data[512 * i:512 * i + 512])
-        ecc_diff = (ecc_read_odd << 16 | ecc_read_even) ^ (ecc_calc_odd << 16 | ecc_calc_even)
-        if ecc_diff:
+        data_chunk = data[512 * i:512 * i + 512]
+        ecc_chunk = ecc[4 * i:4 * i + 4]
+
+        ecc_diff_even, ecc_diff_odd = nand_calc_ecc(data_chunk)
+        ecc_diff_even ^= int.from_bytes(ecc_chunk[0:2], 'little')
+        ecc_diff_odd ^= int.from_bytes(ecc_chunk[2:4], 'little')
+        if ecc_diff_even or ecc_diff_odd:
             # ECC error, try to correct it
-            if not (ecc_diff - 1) & ecc_diff:
-                # single-bit ECC error
-                print('ecc:', 'corrected ECC error')
+            if ecc_diff_even.bit_count() + ecc_diff_odd.bit_count() == 1:
+                # single-bit checksum error: correctable
+                print('ecc:', 'ignored checksum error')
+            elif ecc_diff_even ^ ecc_diff_odd == 0xFFF:
+                # single-bit data error: correctable
+                bit_pos = ecc_diff_odd & 0b111
+                byte_pos = ecc_diff_odd >> 3
+                data[byte_pos] ^= 1 << bit_pos
+                print('ecc:', 'corrected data error')
             else:
-                # single-bit data error
-                ecc_diff_even = ecc_diff & 0xFFF
-                ecc_diff_odd = ecc_diff >> 16
-                if ecc_diff_even ^ ecc_diff_odd == 0xFFF:
-                    # correctable
-                    print('ecc:', 'corrected data error')
-                    data[ecc_diff_odd // 8] ^= 1 << (ecc_diff_odd & 7)
-                else:
-                    # uncorrectable
-                    print('ecc:', 'uncorrectable data error')
-                    return False
+                # uncorrectable data error
+                print('ecc:', 'uncorrectable data error')
+                return False
 
     return True
 
-def nand_calc_hmac(data: bytes) -> bytes:
+def nand_calc_hmac(data: bytes, key: bytes) -> bytes:
     # TODO
-    return b''
+    return bytes(48)
 
 def nand_check_hmac(data: bytearray, hmac: bytes, key: bytes) -> bool:
-    if hmac == b'\x00' * 48:
-        return True
-
     return nand_calc_hmac(data, key) == hmac
 
 def nand_check_spare(data: bytearray, spare: bytes, hmac_key: bytes = None) -> None:
@@ -102,11 +103,13 @@ def nand_calc_spare(data: bytes, hmac_key: bytes = None) -> bytes:
     spare = bytearray(64)
 
     for i in range(4):
-        ecc = nand_calc_ecc(data[512 * i:512 * i + 512])
-        spare[48 + 4 * i:48 + 4 * i + 4] = ecc.to_bytes(4, 'little')
+        ecc_even, ecc_odd = nand_calc_ecc(data[512 * i:512 * i + 512])
+        spare[48 + 4 * i:48 + 4 * i + 4] = ecc_even.to_bytes(2, 'little') + ecc_odd.to_bytes(2, 'little')
 
     if hmac_key:
         spare[0:48] = nand_calc_hmac(data, hmac_key)
+    else:
+        spare[0] = 0xFF
 
     return spare
 
