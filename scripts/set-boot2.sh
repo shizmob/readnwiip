@@ -40,9 +40,11 @@ nandfile="$1"
 indir="$2"
 [ -n "$tmd_chain" ] || tmd_chain=$(runtool tweezer -p "$profile" issuer "$indir"/boot2.stmd)
 
+echo ">> pack"
+runtool toob2 pack "$indir"/boot2.loader.bin "$indir"/boot2.payload.bin "$indir"/boot2.new.bin
 echo ">> encrypt"
-runtool tong -p "$profile" update -i 0 "$indir"/boot2.tmd "$indir"/boot2.bin "$indir"/boot2.new.tmd
-runtool tong -p "$profile" encrypt -i 0 "$indir"/boot2.new.tmd "$indir"/boot2.tik "$indir"/boot2.bin "$indir"/boot2.new.ebin
+runtool tong -p "$profile" update -i 0 "$indir"/boot2.tmd "$indir"/boot2.new.bin "$indir"/boot2.new.tmd
+runtool tong -p "$profile" encrypt -i 0 "$indir"/boot2.new.tmd "$indir"/boot2.tik "$indir"/boot2.new.bin "$indir"/boot2.new.ebin
 echo ">> sign"
 runtool tweezer -p "$profile" sign -k $tmd_chain -f $sign_args -t 70 -t 71 -t 72 -t 73 "$indir"/boot2.new.tmd "$indir"/boot2.new.stmd
 runtool tweezer -p "$profile" export-chains "$outdir"/boot2.new.crt $tmd_chain $(runtool tweezer -p "$profile" issuer "$indir"/boot2.stik)

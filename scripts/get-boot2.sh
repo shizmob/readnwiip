@@ -47,3 +47,5 @@ runtool tweezer -p "$profile" verify -k $tmd_chain -f "$outdir"/boot2.stmd "$out
 runtool tweezer -p "$profile" verify -k $tik_chain -f "$outdir"/boot2.stik "$outdir"/boot2.tik
 echo ">> decrypt"
 runtool tong -p "$profile" decrypt -i 0 "$outdir"/boot2.tmd "$outdir"/boot2.tik "$outdir"/boot2.ebin "$outdir"/boot2.bin
+echo ">> unpack"
+runtool toob2 unpack "$outdir"/boot2.bin "$outdir"/boot2.loader.bin "$outdir"/boot2.payload.bin

@@ -14,6 +14,7 @@ A set of tools to deal with Wii low-level boot and storage.
 * `tong.py`: tool to deal with nasty ticks (Wii ticket, titles and title metadata);
 * `texel.py`: tool to deal with Wadden islands (Wii .wad files);
 * `tsoprocky.py`: tool to deal with TSOP chips (Wii NAND data);
+* `toob2.py`: tool to deal with reverse-written payloads (Wii Boot2)
 
 Refer to the `--help` output of the individual tools, and `./scripts` for some example scripts.
 
