@@ -153,7 +153,20 @@ class PublicKey(Struct):
     })
     _pad48_X:   Data(52)
 
-    def make_key(self) -> RSA:
+    @classmethod
+    def generate(cls, algorithm: Algorithm, subject: str, key: Any) -> PublicKey:
+        crypt_algo = CRYPT_ALGOS.get(algorithm, None)
+        if crypt_algo == 'rsa':
+            value = key.n.to_bytes(key.size_in_bytes(), byteorder='big') + key.e.to_bytes(4, byteorder='big')
+        else:
+            raise NotImplementedError('unknown crypt algorithm for {}: {}'.format(self.algorithm, crypt_algo))
+        return cls(
+            algorithm=algorithm,
+            subject=subject,
+            value=value,
+        )
+
+    def make_key(self) -> Any:
         crypt_algo = CRYPT_ALGOS.get(self.algorithm, None)
         if crypt_algo == 'rsa':
             modulus, exponent = self.value[:-4], self.value[-4:]
@@ -180,6 +193,20 @@ class PrivateKey(Struct):
     value:       Switch(selector=self.public_key.algorithm, options={
         algo: Data(KEY_SIZES[algo][1]) for algo in Algorithm
     })
+
+    @classmethod
+    def generate(cls, algorithm: Algorithm, subject: str) -> PrivateKey:
+        crypt_algo = CRYPT_ALGOS.get(algorithm, None)
+        public_size, private_size = KEY_SIZES.get(algorithm, (0, 0))
+        if crypt_algo == 'rsa':
+            key = RSA.generate(private_size * 8)
+            value = key.d.to_bytes(key.size_in_bytes(), byteorder='big')
+        else:
+            raise NotImplementedError('unknown crypt algorithm for {}: {}'.format(self.algorithm, crypt_algo))
+        return cls(
+            public_key=PublicKey.generate(algorithm, subject, key.public_key()),
+            value=value
+        )
 
     def make_key(self) -> RSA:
         public_key = self.public_key.make_key()
@@ -353,7 +380,7 @@ def save_public_key(basedir: str, key: PublicKey) -> None:
         dump(PublicKey, key, f)
 
 def save_private_key(basedir: str, key: PrivateKey) -> None:
-    with open(os.path.join(basedir, key.subject + '.key'), 'wb') as f:
+    with open(os.path.join(basedir, key.public_key.subject + '.key'), 'wb') as f:
         dump(PrivateKey, key, f)
 
 def save_sig(basedir: str, name: str, sig: Signature) -> None:
@@ -449,14 +476,44 @@ if __name__ == '__main__':
     export_chains_cmd.add_argument('outfile', type=argparse.FileType('wb'))
     export_chains_cmd.add_argument('chain', nargs='*', help='chain name')
 
+    def do_create(args, parser, cert_dir):
+        crypt_candidates = {algo for algo, value in CRYPT_ALGOS.items() if value.lower() == args.crypt_algo.lower()}
+        digest_candidates = {algo for algo, value in DIGEST_ALGOS.items() if value.lower() == args.digest_algo.lower()}
+        candidates = crypt_candidates & digest_candidates
+
+        if args.size:
+            size_candidates = {algo for algo, (public_size, private_size) in KEY_SIZES.items() if args.size // 8 in (public_size, private_size)}
+            candidates &= size_candidates
+
+        if not candidates:
+            parser.error('could not find algorithm for given algos and size')
+        if len(candidates) > 1:
+            parser.error('ambiguous algorithm choice (have you specified -s/--size?): {}'.format(', '.join(c.name for c in candidates)))
+        algo = next(iter(candidates))
+
+        private_key = PrivateKey.generate(algo, args.subject)
+        save_private_key(cert_dir, private_key)
+        save_public_key(cert_dir, private_key.public_key)
+
+    create_cmd = subcommands.add_parser('generate')
+    create_cmd.set_defaults(func=do_create)
+    create_cmd.add_argument('-c', '--crypt-algo', required=True, help='(en/de)cryption algorithm')
+    create_cmd.add_argument('-d', '--digest-algo', required=True, help='digest algorithm')
+    create_cmd.add_argument('-s', '--size', type=int, help='size in bits')
+    create_cmd.add_argument('subject', help='public key subject')
+
     def do_sign(args, parser, cert_dir):
         root, chain = load_chain(cert_dir, tuple(args.key_chain.split('-')))
+        if chain:
+            public_key = chain[-1].content
+        else:
+            public_key = root
         try:
-            sign_key = load_private_key(cert_dir, chain[-1].content.subject)
+            sign_key = load_private_key(cert_dir, public_key.subject)
         except:
             if not args.forge:
                 print('{}: error loading private key "{}", and -f/--forge not specified'.format(
-                    parser.prog, sign_pub_key.subject
+                    parser.prog, public_key.subject
                 ), file=sys.stderr)
                 return 1
             sign_key = None
