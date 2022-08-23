@@ -10,7 +10,7 @@ import itertools
 from Crypto.Cipher import AES
 from Crypto.PublicKey import RSA
 from Crypto.Util.number import bytes_to_long, long_to_bytes
-from sx import Struct, Generic as SxGeneric, Arr, Data, parse, dump, to_type
+from sx import Struct, Generic as SxGeneric, Arr, Data, Nothing, parse, dump, to_type
 
 
 # Ref: https://wiibrew.org/wiki/Certificate_chain, https://www.3dbrew.org/wiki/Ticket
@@ -373,6 +373,7 @@ class Signed(Struct, generics={SxCT}):
 Certificate = Signed[PublicKey]
 CertificateChain = Arr(Certificate)
 SignedData = Signed[Data()]
+SignedHeader = Signed[Nothing()]
 
 
 def save_public_key(basedir: str, key: PublicKey) -> None:
@@ -501,6 +502,15 @@ if __name__ == '__main__':
     create_cmd.add_argument('-d', '--digest-algo', required=True, help='digest algorithm')
     create_cmd.add_argument('-s', '--size', type=int, help='size in bits')
     create_cmd.add_argument('subject', help='public key subject')
+
+    def do_issuer(args, parser, cert_dir):
+        for infile in args.infile:
+            signed_hdr = parse(SignedHeader, infile)
+            print(signed_hdr.signature.issuer)
+
+    issuer_cmd = subcommands.add_parser('issuer')
+    issuer_cmd.set_defaults(func=do_issuer)
+    issuer_cmd.add_argument('infile', nargs='*', type=argparse.FileType('rb'))
 
     def do_sign(args, parser, cert_dir):
         root, chain = load_chain(cert_dir, tuple(args.key_chain.split('-')))
