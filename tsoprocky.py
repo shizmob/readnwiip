@@ -5,8 +5,6 @@ from collections import Counter
 from Crypto.Cipher import AES
 
 from sx import Struct, parse, dump, sizeof
-from tweezer import Certificate, CertificateChain, Signed
-from tong import TitleMetadata, Ticket
 from texel import WADv0
 
 
@@ -229,6 +227,8 @@ if __name__ == '__main__':
     import argparse
     import sys
     import os.path
+    from tweezer import CertificateChain, Signed
+    from tong import TitleMetadata, Ticket
 
     parser = argparse.ArgumentParser()
     parser.set_defaults(func=None)

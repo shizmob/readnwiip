@@ -2,7 +2,7 @@
 from __future__ import annotations
 from sx import Struct, parse, dump
 import hashlib
-from tweezer import Certificate, CertificateChain, Signed
+from tweezer import CertificateChain, Signed
 from tong import Ticket, TitleMetadata, TitleID, ContentType
 
 
