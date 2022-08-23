@@ -23,11 +23,9 @@ outdir="$2"
 
 case "$profile" in
 retail|*-retail)
-	[ -n "$tmd_chain" ] || tmd_chain=Root-CA00000001-CP00000004
 	sign_args=
 	;;
 dev|*-dev)
-	[ -n "$tmd_chain" ] || tmd_chain=Root-CA00000002-CP00000007
 	sign_args=-P
 	;;
 *)	printf "%s: unknown profile %s\n" "$0" "$profile" >&2; exit 255;;
@@ -40,12 +38,13 @@ runtool() {
 
 nandfile="$1"
 indir="$2"
+[ -n "$tmd_chain" ] || tmd_chain=$(runtool tweezer -p "$profile" issuer "$indir"/boot2.stmd)
 
 echo ">> encrypt"
 runtool tong -p "$profile" update -i 0 "$indir"/boot2.tmd "$indir"/boot2.bin "$indir"/boot2.new.tmd
 runtool tong -p "$profile" encrypt -i 0 "$indir"/boot2.new.tmd "$indir"/boot2.tik "$indir"/boot2.bin "$indir"/boot2.new.ebin
 echo ">> sign"
 runtool tweezer -p "$profile" sign -k $tmd_chain -f $sign_args -t 70 -t 71 -t 72 -t 73 "$indir"/boot2.new.tmd "$indir"/boot2.new.stmd
-runtool tweezer -p "$profile" export-chains "$outdir"/boot2.new.crt $(runtool tweezer -p "$profile" issuer "$indir"/boot2.new.stmd "$indir"/boot2.stik)
+runtool tweezer -p "$profile" export-chains "$outdir"/boot2.new.crt $tmd_chain $(runtool tweezer -p "$profile" issuer "$indir"/boot2.stik)
 echo ">> insert"
 runtool tsoprocky -p "$profile" insert-boot2 "$nandfile" "$indir"/boot2.new.crt "$indir"/boot2.new.stmd "$indir"/boot2.stik "$indir"/boot2.new.ebin
