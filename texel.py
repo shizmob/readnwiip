@@ -18,7 +18,7 @@ class WADv0(Struct):
     tik:              Sized(Signed[Ticket], self.tik_size)
     tmd:              Sized(Signed[TitleMetadata], self.tmd_size)
 
-    data:             Ref(Data(), self.data_offset)
+    data:             AlignedTo(Ref(Data(), self.data_offset), 0x40)
 
     def extract_chunks(self):
         chunks = []
