@@ -121,6 +121,17 @@ def nand_write_pages(outfile, offset: int, data: bytes, hmac_key: bytes = None) 
         outfile.write(page_data)
         outfile.write(page_spare)
 
+def nand_check_pages(infile, hmac_key: bytes = None):
+    i = 1
+    while True:
+        page_data = bytearray(infile.read(NAND_PAGE_SIZE))
+        if not page_data:
+            break
+        page_spare = infile.read(NAND_SPARE_SIZE)
+        yield (i, nand_check_spare(page_data, page_spare, hmac_key=hmac_key))
+        i += 1
+
+
 NAND_BLOCK_PAGES = 64
 
 def nand_read_blocks(infile, offset: int, count: int) -> bytes:
@@ -236,6 +247,25 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--profile', default='retail')
 
     subcommands = parser.add_subparsers()
+
+    def do_verify(args, parser, key_dir):
+        bad_pages = []
+        for (page_no, check) in nand_check_pages(args.nandfile):
+            if not check:
+                bad_pages.append(page_no)
+            sys.stderr.write('\rchecking page {}...'.format(page_no))
+            if bad_pages:
+                sys.stderr.write(' [bad: {}]'.format(', '.join(str(x) for x in bad_pages)))
+
+        sys.stderr.write('\rchecked all pages!        ')
+        if bad_pages:
+            sys.stderr.write('[bad: {}]\n'.format(', '.join(str(x) for x in bad_pages)))
+        else:
+            sys.stderr.write('[no bad pages]\n')
+
+    verify_cmd = subcommands.add_parser('verify')
+    verify_cmd.set_defaults(func=do_verify)
+    verify_cmd.add_argument('nandfile', type=argparse.FileType('rb'))
 
     def do_extract_boot1(args, parser, key_dir):
         with open(os.path.join(key_dir, 'boot1.key'), 'rb') as f:
