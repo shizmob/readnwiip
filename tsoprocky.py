@@ -225,12 +225,16 @@ def insert_mapped_blocks(outfile, block_num_hints: list[int], data: bytes, rever
 
 BOOT2_BLOCK_NUMBERS = [1, 2, 3, 4, 5, 6, 7]
 
-def extract_boot2(infile, backup=False) -> WADv0:
-    data = extract_mapped_blocks(infile, BOOT2_BLOCK_NUMBERS, reversed=backup)
+def parse_boot2(data: bytes) -> WADv0:
     return parse(WADv0, data)
 
-def insert_boot2(outfile, content: WADv0, backup=False) -> None:
-    data = dump(WADv0, content).getvalue()
+def dump_boot2(content: WADv0) -> bytes:
+    return dump(WADv0, content).getvalue()
+
+def extract_boot2(infile, backup=False) -> WADv0:
+    return extract_mapped_blocks(infile, BOOT2_BLOCK_NUMBERS, reversed=backup)
+
+def insert_boot2(outfile, data: bytes, backup=False) -> None:
     insert_mapped_blocks(outfile, BOOT2_BLOCK_NUMBERS, data, reversed=backup)
 
 
@@ -288,7 +292,12 @@ if __name__ == '__main__':
     insert_boot1_cmd.add_argument('boot1file', type=argparse.FileType('rb'))
 
     def do_extract_boot2(args, parser, key_dir):
-        boot2 = extract_boot2(args.nandfile, backup=args.backup)
+        boot2_raw = extract_boot2(args.nandfile, backup=args.backup)
+        if not args.rawfile:
+            args.rawfile = open(prefix + '.boot2.raw', 'wb')
+        args.rawfile.write(boot2_raw)
+        boot2 = parse_boot2(boot2_raw)
+
         prefix = os.path.basename(os.path.splitext(args.nandfile.name)[0])
         chunks = boot2.extract_chunks()
         for i in range(len(args.chunkfiles), len(chunks)):
@@ -310,6 +319,7 @@ if __name__ == '__main__':
     extract_boot2_cmd.set_defaults(func=do_extract_boot2)
     extract_boot2_cmd.add_argument('-b', '--backup', action='store_true', help='extract from backup boot2 slot')
     extract_boot2_cmd.add_argument('nandfile', type=argparse.FileType('rb'))
+    extract_boot2_cmd.add_argument('rawfile', nargs='?', type=argparse.FileType('wb'))
     extract_boot2_cmd.add_argument('chainfile', nargs='?', type=argparse.FileType('wb'))
     extract_boot2_cmd.add_argument('metafile', nargs='?', type=argparse.FileType('wb'))
     extract_boot2_cmd.add_argument('ticketfile', nargs='?', type=argparse.FileType('wb'))
@@ -328,7 +338,8 @@ if __name__ == '__main__':
             tik=tik,
             data=data,
         )
-        insert_boot2(args.nandfile, boot2, backup=args.backup)
+        boot2_raw = dump_boot2(boot2)
+        insert_boot2(args.nandfile, boot2_raw, backup=args.backup)
 
     insert_boot2_cmd = subcommands.add_parser('insert-boot2')
     insert_boot2_cmd.set_defaults(func=do_insert_boot2)
