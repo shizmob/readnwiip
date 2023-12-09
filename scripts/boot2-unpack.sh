@@ -2,13 +2,15 @@
 set -e
 
 usage() {
-	printf "usage: %s [-h] [-p PROFILE] <nandfile> <outdir>\n" "$0" >&2
+	printf "usage: %s [-h] [-b] [-p PROFILE] <nandfile> <outdir>\n" "$0" >&2
 }
 
 profile=retail
+backup=
 
-while getopts hp: opt; do
+while getopts hbp: opt; do
 	case "$opt" in
+	b) backup=1;;
 	h) usage; exit 0;;
 	p) profile="$OPTARG";;
 	?) usage; exit 255;;
@@ -40,7 +42,7 @@ nandfile="$1"
 outdir="$2"
 
 echo ">> extract"
-runtool tsoprocky -p "$profile" extract-boot2 "$nandfile" "$outdir"/boot2.crt "$outdir"/boot2.stmd "$outdir"/boot2.stik "$outdir"/boot2.ebin
+runtool tsoprocky -p "$profile" extract-boot2 ${backup:+-b} "$nandfile" "$outdir"/boot2.raw "$outdir"/boot2.crt "$outdir"/boot2.stmd "$outdir"/boot2.stik "$outdir"/boot2.ebin
 echo ">> verify"
 runtool tweezer -p "$profile" import-chains "$outdir"/boot2.crt
 runtool tweezer -p "$profile" verify -k $tmd_chain -f "$outdir"/boot2.stmd "$outdir"/boot2.tmd
