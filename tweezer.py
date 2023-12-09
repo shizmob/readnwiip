@@ -27,12 +27,12 @@ class Algorithm(enum.Enum):
     ECDSA_SECT233R1_SHA256 = 0x0005
 
 KEY_SIZES = {
-    Algorithm.RSA4096_SHA1:           (512 + 4, 512),
-    Algorithm.RSA2048_SHA1:           (256 + 4, 256),
-    Algorithm.ECDSA_SECT233R1_SHA1:   (60,      60),
-    Algorithm.RSA4096_SHA256:         (512 + 4, 512),
-    Algorithm.RSA2048_SHA256:         (256 + 4, 256),
-    Algorithm.ECDSA_SECT233R1_SHA256: (60,      60),
+    Algorithm.RSA4096_SHA1:           (512 + 8, 512),
+    Algorithm.RSA2048_SHA1:           (256 + 8, 256),
+    Algorithm.ECDSA_SECT233R1_SHA1:   (60 + 12, 60),
+    Algorithm.RSA4096_SHA256:         (512 + 8, 512),
+    Algorithm.RSA2048_SHA256:         (256 + 8, 256),
+    Algorithm.ECDSA_SECT233R1_SHA256: (60 + 12, 60),
 }
 
 CRYPT_ALGOS = {
@@ -147,7 +147,6 @@ class PublicKey(Struct):
     entry_type: Fixed(0, uint16be)
     algorithm:  Enum(Algorithm, uint16be)
     subject:    Sized(cstr, 64, hard=True)
-    unk44:      Data(4)
     value:      Switch(selector=self.algorithm, options={
         algo: Data(KEY_SIZES[algo][0]) for algo in Algorithm
     })
@@ -157,7 +156,7 @@ class PublicKey(Struct):
     def generate(cls, algorithm: Algorithm, subject: str, key: Any) -> PublicKey:
         crypt_algo = CRYPT_ALGOS.get(algorithm, None)
         if crypt_algo == 'rsa':
-            value = key.n.to_bytes(key.size_in_bytes(), byteorder='big') + key.e.to_bytes(4, byteorder='big')
+            value = bytes(4) + key.n.to_bytes(key.size_in_bytes(), byteorder='big') + key.e.to_bytes(4, byteorder='big')
         else:
             raise NotImplementedError('unknown crypt algorithm for {}: {}'.format(self.algorithm, crypt_algo))
         return cls(
@@ -169,7 +168,7 @@ class PublicKey(Struct):
     def make_key(self) -> Any:
         crypt_algo = CRYPT_ALGOS.get(self.algorithm, None)
         if crypt_algo == 'rsa':
-            modulus, exponent = self.value[:-4], self.value[-4:]
+            modulus, exponent = self.value[4:-4], self.value[-4:]
             return RSA.construct((int.from_bytes(modulus, byteorder='big'), int.from_bytes(exponent, byteorder='big')))
         else:
             raise NotImplementedError('unknown crypt algorithm for {}: {}'.format(self.algorithm, crypt_algo))
